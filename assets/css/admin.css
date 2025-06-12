@@ -1,0 +1,256 @@
+#claude-code-interface {
+    display: flex;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.chat-container {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.chat-header {
+    background: #f6f7f7;
+    padding: 15px 20px;
+    border-bottom: 1px solid #ccd0d4;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.chat-header h3 {
+    margin: 0;
+    color: #23282d;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #dc3232;
+}
+
+.status-dot.connected {
+    background: #00a32a;
+}
+
+.chat-messages {
+    height: 500px;
+    overflow-y: auto;
+    padding: 20px;
+    background: #fafafa;
+}
+
+.message {
+    margin-bottom: 20px;
+    display: flex;
+    flex-direction: column;
+}
+
+.message.user {
+    align-items: flex-end;
+}
+
+.message.assistant {
+    align-items: flex-start;
+}
+
+.message-content {
+    max-width: 80%;
+    padding: 12px 16px;
+    border-radius: 8px;
+    word-wrap: break-word;
+}
+
+.message.user .message-content {
+    background: #0073aa;
+    color: white;
+}
+
+.message.assistant .message-content {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    color: #23282d;
+}
+
+.system-message {
+    background: #e1f5fe;
+    border: 1px solid #81d4fa;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+.system-message ul {
+    margin: 10px 0;
+    padding-left: 20px;
+}
+
+.chat-input-container {
+    border-top: 1px solid #ccd0d4;
+    padding: 15px 20px;
+    background: #fff;
+}
+
+#chat-input {
+    width: 100%;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 60px;
+}
+
+.input-actions {
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+}
+
+.tools-sidebar {
+    width: 300px;
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-radius: 4px;
+    padding: 20px;
+    height: fit-content;
+}
+
+.tools-sidebar h4 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #23282d;
+}
+
+.tool-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.tool-item:last-child {
+    border-bottom: none;
+}
+
+.tool-icon {
+    font-size: 16px;
+}
+
+.tool-name {
+    flex: 1;
+    font-size: 13px;
+}
+
+.tool-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #dcdcde;
+}
+
+.tool-status-dot.active {
+    background: #00a32a;
+}
+
+.quick-actions {
+    margin-top: 25px;
+}
+
+.action-btn {
+    display: block;
+    width: 100%;
+    margin-bottom: 8px;
+    text-align: left;
+}
+
+.code-block {
+    background: #2d3748;
+    color: #e2e8f0;
+    padding: 15px;
+    border-radius: 4px;
+    margin: 10px 0;
+    overflow-x: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.tools-used {
+    background: #f8f9fa;
+    border-left: 3px solid #0073aa;
+    padding: 8px 12px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #666;
+}
+
+.typing-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #666;
+    font-style: italic;
+    margin-bottom: 10px;
+}
+
+.typing-dots {
+    display: flex;
+    gap: 2px;
+}
+
+.typing-dots span {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #666;
+    animation: typing 1.5s infinite;
+}
+
+.typing-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+}
+
+.typing-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+}
+
+@keyframes typing {
+    0%, 60%, 100% {
+        opacity: 0.3;
+    }
+    30% {
+        opacity: 1;
+    }
+}
+
+#connection-result {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 4px;
+    display: none;
+}
+
+#connection-result.success {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+#connection-result.error {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}

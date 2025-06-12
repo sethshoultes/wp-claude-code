@@ -1,0 +1,46 @@
+# WordPress
+wp-config.php
+wp-content/uploads/
+wp-content/cache/
+wp-content/backup-db/
+wp-content/advanced-cache.php
+wp-content/wp-cache-config.php
+
+# Plugin specific
+backups/
+logs/
+*.log
+debug.log
+error_log
+
+# Development
+node_modules/
+.env
+.env.local
+*.tmp
+*.temp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Composer
+vendor/
+composer.lock
+
+# NPM
+package-lock.json
+yarn.lock
+
+# Temporary files
+*.bak
+*.backup
+*.orig
