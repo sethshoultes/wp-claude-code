@@ -60,14 +60,14 @@ class WP_Claude_Code {
         // Create necessary tables or options
         $this->create_tables();
         
-        // Set default options using existing LiteLLM proxy from MemberPress AI
+        // Set default options - API key should be configured in settings
         add_option('wp_claude_code_settings', array(
-            'litellm_endpoint' => 'https://64.23.251.16.nip.io',
-            'api_key' => '3d82afe47512fcb1faba41cc1c9c796d3dbe8624b0a5c62fa68e6d38f0bf6d72',
+            'litellm_endpoint' => '',
+            'api_key' => '',
             'model' => 'claude-3-sonnet-20240229',
             'max_tokens' => 4000,
             'enabled_tools' => array('file_read', 'file_edit', 'wp_cli', 'db_query'),
-            'use_memberpress_ai_config' => false // Disabled since we have the correct token
+            'use_memberpress_ai_config' => true // Try to auto-detect from MemberPress AI
         ));
         
         // Flush rewrite rules for API endpoints
