@@ -272,12 +272,34 @@ class WP_Claude_Code_Admin {
                                 'plugin_repository' => 'WordPress.org Plugin Repository Check',
                                 'staging' => 'Staging Management'
                             );
-                            
+
                             foreach ($available_tools as $tool => $label) {
                                 $checked = in_array($tool, $enabled_tools) ? 'checked' : '';
                                 echo "<label><input type='checkbox' name='enabled_tools[]' value='$tool' $checked> $label</label><br>";
                             }
                             ?>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th scope="row">Chat UI</th>
+                        <td>
+                            <label>
+                                <input type="checkbox"
+                                       name="chat_ui_enabled"
+                                       value="1"
+                                       <?php checked(!empty($settings['chat_ui_enabled'])); ?> />
+                                Enable Modern Chat UI
+                            </label>
+                            <p class="description">Provides markdown rendering, syntax highlighting, and WhatsApp-style message bubbles</p>
+
+                            <div style="margin-top: 10px;">
+                                <label for="chat_ui_renderer">Markdown Rendering:</label>
+                                <select name="chat_ui_renderer" id="chat_ui_renderer">
+                                    <option value="client" <?php selected($settings['chat_ui_renderer'] ?? 'client', 'client'); ?>>Client-side (faster)</option>
+                                    <option value="server" <?php selected($settings['chat_ui_renderer'] ?? 'client', 'server'); ?>>Server-side (more secure)</option>
+                                </select>
+                            </div>
                         </td>
                     </tr>
                 </table>
@@ -298,18 +320,20 @@ class WP_Claude_Code_Admin {
         if (!wp_verify_nonce($_POST['_wpnonce'], 'claude_code_settings_nonce')) {
             wp_die('Security check failed');
         }
-        
+
         $settings = array(
             'use_memberpress_ai_config' => !empty($_POST['use_memberpress_ai_config']),
             'litellm_endpoint' => sanitize_url($_POST['litellm_endpoint']),
             'api_key' => sanitize_text_field($_POST['api_key']),
             'model' => sanitize_text_field($_POST['model']),
             'max_tokens' => absint($_POST['max_tokens']),
-            'enabled_tools' => array_map('sanitize_text_field', $_POST['enabled_tools'] ?? array())
+            'enabled_tools' => array_map('sanitize_text_field', $_POST['enabled_tools'] ?? array()),
+            'chat_ui_enabled' => !empty($_POST['chat_ui_enabled']),
+            'chat_ui_renderer' => sanitize_text_field($_POST['chat_ui_renderer'] ?? 'client')
         );
-        
+
         update_option('wp_claude_code_settings', $settings);
-        
+
         echo '<div class="notice notice-success"><p>Settings saved!</p></div>';
     }
     
