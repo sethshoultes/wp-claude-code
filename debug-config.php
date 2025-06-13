@@ -73,6 +73,20 @@ try {
     echo "<p><strong>Endpoint:</strong> " . ($settings['litellm_endpoint'] ?? 'Not set') . "</p>";
     echo "<p><strong>API Key:</strong> " . (!empty($settings['api_key']) ? "✅ Available (length: " . strlen($settings['api_key']) . ")" : "❌ Not available") . "</p>";
     echo "<p><strong>Model:</strong> " . ($settings['model'] ?? 'Not set') . "</p>";
+    echo "<p><strong>Image Format Override:</strong> " . ($settings['image_format_override'] ?? 'auto') . "</p>";
+    
+    // Show configuration advice
+    $config_advice = $claude_api->get_configuration_advice();
+    if (!empty($config_advice)) {
+        echo "<h4>Configuration Recommendations:</h4>";
+        foreach ($config_advice as $advice) {
+            $color = $advice['type'] === 'warning' ? '#dc3232' : '#46b450';
+            $bg_color = $advice['type'] === 'warning' ? '#f8d7da' : '#ecf7ed';
+            echo "<div style='background: {$bg_color}; border-left: 3px solid {$color}; padding: 10px; margin: 10px 0;'>";
+            echo "<strong>{$advice['title']}:</strong> {$advice['message']}";
+            echo "</div>";
+        }
+    }
     
 } catch (Exception $e) {
     echo "<p><strong>Error testing our API client:</strong> " . $e->getMessage() . "</p>";
@@ -91,3 +105,147 @@ try {
 } catch (Exception $e) {
     echo "<p><strong>Connection test error:</strong> " . $e->getMessage() . "</p>";
 }
+
+// Direct LiteLLM Connection Test
+echo "<h3>Direct LiteLLM Connection Test:</h3>";
+echo "<p>Test if your LiteLLM proxy is responding correctly:</p>";
+echo "<button id='test-litellm-direct' class='button button-secondary'>Test LiteLLM Connection</button>";
+echo "<div id='litellm-test-results' style='margin-top: 15px;'></div>";
+
+// Image Format Testing
+echo "<h3>Image Format Testing:</h3>";
+echo "<p>Test both OpenAI and Claude image formats to determine which works with your LiteLLM proxy:</p>";
+echo "<button id='test-image-formats' class='button button-primary'>Test Image Formats</button>";
+echo "<div id='image-format-results' style='margin-top: 15px;'></div>";
+
+echo "
+<script>
+jQuery(document).ready(function($) {
+    // Direct LiteLLM test
+    $('#test-litellm-direct').on('click', function() {
+        var button = $(this);
+        var results = $('#litellm-test-results');
+        
+        button.prop('disabled', true).text('Testing...');
+        results.html('<p>Testing direct connection to LiteLLM...</p>');
+        
+        $.ajax({
+            url: '" . admin_url('admin-ajax.php') . "',
+            type: 'POST',
+            data: {
+                action: 'claude_code_test_litellm_direct',
+                nonce: '" . wp_create_nonce('claude_code_nonce') . "'
+            },
+            success: function(response) {
+                button.prop('disabled', false).text('Test LiteLLM Connection');
+                
+                if (response.success) {
+                    var html = '<div style=\"background: #ecf7ed; border: 1px solid #46b450; border-radius: 4px; padding: 15px;\">';
+                    html += '<h4>✅ LiteLLM Connection Successful</h4>';
+                    html += '<p><strong>Endpoint:</strong> ' + response.data.endpoint + '</p>';
+                    html += '<p><strong>Model Used:</strong> ' + response.data.model_used + '</p>';
+                    html += '<p><strong>Response:</strong> ' + response.data.response + '</p>';
+                    html += '</div>';
+                    results.html(html);
+                } else {
+                    results.html('<div style=\"background: #f8d7da; border: 1px solid #dc3232; border-radius: 4px; padding: 15px;\"><strong>❌ Connection Failed:</strong> ' + response.data + '</div>');
+                }
+            },
+            error: function() {
+                button.prop('disabled', false).text('Test LiteLLM Connection');
+                results.html('<div style=\"color: #dc3232;\">Network error occurred during test</div>');
+            }
+        });
+    });
+    
+    $('#test-image-formats').on('click', function() {
+        var button = $(this);
+        var results = $('#image-format-results');
+        
+        button.prop('disabled', true).text('Testing...');
+        results.html('<p>Testing image formats with your LiteLLM proxy...</p>');
+        
+        $.ajax({
+            url: '" . admin_url('admin-ajax.php') . "',
+            type: 'POST',
+            data: {
+                action: 'claude_code_test_image_format',
+                nonce: '" . wp_create_nonce('claude_code_nonce') . "'
+            },
+            success: function(response) {
+                button.prop('disabled', false).text('Test Image Formats');
+                
+                if (response.success) {
+                    var data = response.data;
+                    var html = '<div style=\"background: #f0f8ff; border: 1px solid #0073aa; border-radius: 4px; padding: 15px;\">';
+                    html += '<h4>Image Format Test Results</h4>';
+                    
+                    // OpenAI URL Format Test (preferred)
+                    html += '<div style=\"margin: 10px 0; padding: 10px; border-left: 3px solid ';
+                    if (data.openai_url_format.success) {
+                        html += '#46b450; background: #ecf7ed;\">';
+                        html += '<strong>✅ OpenAI URL Format:</strong> SUCCESS (Recommended)';
+                        html += '<br><small>✨ This is the most efficient method - images are served as URLs</small>';
+                    } else {
+                        html += '#dc3232; background: #f8d7da;\">';
+                        html += '<strong>❌ OpenAI URL Format:</strong> FAILED';
+                        html += '<br><small>Error: ' + (data.openai_url_format.response || 'Unknown error') + '</small>';
+                    }
+                    html += '</div>';
+                    
+                    // OpenAI Base64 Format Test (fallback)
+                    html += '<div style=\"margin: 10px 0; padding: 10px; border-left: 3px solid ';
+                    if (data.openai_base64_format.success) {
+                        html += '#46b450; background: #ecf7ed;\">';
+                        html += '<strong>✅ OpenAI Base64 Format:</strong> SUCCESS (Fallback)';
+                        html += '<br><small>📊 Uses embedded base64 data - larger API requests</small>';
+                    } else {
+                        html += '#dc3232; background: #f8d7da;\">';
+                        html += '<strong>❌ OpenAI Base64 Format:</strong> FAILED';
+                        html += '<br><small>Error: ' + (data.openai_base64_format.response || 'Unknown error') + '</small>';
+                    }
+                    html += '</div>';
+                    
+                    // Claude Format Test
+                    html += '<div style=\"margin: 10px 0; padding: 10px; border-left: 3px solid ';
+                    if (data.claude_format.success) {
+                        html += '#46b450; background: #ecf7ed;\">';
+                        html += '<strong>✅ Claude Format:</strong> SUCCESS';
+                        html += '<br><small>🔧 Uses Claude-specific base64 format</small>';
+                    } else {
+                        html += '#dc3232; background: #f8d7da;\">';
+                        html += '<strong>❌ Claude Format:</strong> FAILED';
+                        html += '<br><small>Error: ' + (data.claude_format.response || 'Unknown error') + '</small>';
+                    }
+                    html += '</div>';
+                    
+                    // Recommendation
+                    html += '<div style=\"margin: 15px 0; padding: 10px; background: #e1f5fe; border-radius: 4px;\">';
+                    html += '<strong>💡 Recommendation:</strong><br>';
+                    
+                    if (data.openai_url_format.success) {
+                        html += '🎯 <strong>Use OpenAI format</strong> in Claude Code settings. Your LiteLLM proxy supports URL-based images (most efficient method).';
+                    } else if (data.openai_base64_format.success) {
+                        html += '📊 <strong>Use OpenAI format</strong> in Claude Code settings. Your LiteLLM proxy supports base64 images.';
+                    } else if (data.claude_format.success) {
+                        html += '🔧 <strong>Use Claude format</strong> in Claude Code settings. Your LiteLLM proxy works with Claude-style image messages.';
+                    } else {
+                        html += '⚠️ <strong>No image format is working.</strong> Check your LiteLLM proxy configuration and ensure it supports vision models. Verify the endpoint and API key are correct.';
+                    }
+                    html += '</div>';
+                    
+                    html += '</div>';
+                    results.html(html);
+                } else {
+                    results.html('<div style=\"color: #dc3232;\">Test failed: ' + (response.data || 'Unknown error') + '</div>');
+                }
+            },
+            error: function() {
+                button.prop('disabled', false).text('Test Image Formats');
+                results.html('<div style=\"color: #dc3232;\">Network error occurred during test</div>');
+            }
+        });
+    });
+});
+</script>
+";

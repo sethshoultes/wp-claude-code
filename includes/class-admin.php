@@ -15,6 +15,14 @@ class WP_Claude_Code_Admin {
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
         add_action('wp_ajax_claude_code_chat', array($this, 'handle_chat_request'));
+        add_action('wp_ajax_claude_code_set_model', array($this, 'handle_set_model'));
+        add_action('wp_ajax_claude_code_get_user_model', array($this, 'handle_get_user_model'));
+        add_action('wp_ajax_claude_code_debug_image', array($this, 'handle_debug_image'));
+        add_action('wp_ajax_claude_code_test_image_format', array($this, 'handle_test_image_format'));
+        add_action('wp_ajax_claude_code_test_litellm_direct', array($this, 'handle_test_litellm_direct'));
+        add_action('wp_ajax_claude_code_test_connection', array($this, 'handle_test_connection'));
+        add_action('wp_ajax_claude_code_get_available_models', array($this, 'handle_get_available_models'));
+        add_action('wp_ajax_claude_code_refresh_models', array($this, 'handle_refresh_models'));
     }
     
     public function add_admin_menu() {
@@ -91,7 +99,21 @@ class WP_Claude_Code_Admin {
             <div id="claude-code-interface">
                 <div class="chat-container">
                     <div class="chat-header">
-                        <h3>WordPress Development Assistant</h3>
+                        <div class="header-left">
+                            <h3>WordPress Development Assistant</h3>
+                            <div class="model-selector">
+                                <select id="model-selector">
+                                    <option value="claude-3-sonnet">Claude 3 Sonnet 🖼️</option>
+                                    <option value="claude-3-opus">Claude 3 Opus 🖼️</option>
+                                    <option value="claude-3-haiku">Claude 3 Haiku 🖼️</option>
+                                    <option value="gpt-4o">GPT-4o 🖼️</option>
+                                    <option value="gpt-4o-mini">GPT-4o Mini 🖼️</option>
+                                    <option value="gpt-4">GPT-4</option>
+                                    <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                </select>
+                                <button id="refresh-models" class="button button-small" title="Refresh available models from LiteLLM proxy">🔄</button>
+                            </div>
+                        </div>
                         <div class="status-indicator">
                             <span class="status-dot"></span>
                             <span id="connection-status">Connecting...</span>
@@ -113,12 +135,25 @@ class WP_Claude_Code_Admin {
                     </div>
                     
                     <div class="chat-input-container">
+                        <div class="file-attachments" id="file-attachments" style="display: none;">
+                            <div class="attachments-header">
+                                <span>📎 Attachments:</span>
+                                <button type="button" id="clear-attachments" class="button-link">Clear All</button>
+                            </div>
+                            <div class="attachments-list" id="attachments-list"></div>
+                        </div>
+                        
                         <textarea 
                             id="chat-input" 
                             placeholder="Ask me to help with your WordPress development..."
                             rows="3"
                         ></textarea>
+                        
                         <div class="input-actions">
+                            <div class="file-upload-wrapper">
+                                <input type="file" id="file-upload" accept=".txt,.csv,.json,.pdf,.zip,.html,.css,.js,.sql,.jpg,.jpeg,.png,.gif,.webp" multiple style="display: none;">
+                                <button type="button" id="attach-file" class="button" title="Attach File">📎</button>
+                            </div>
                             <button id="send-message" class="button button-primary">Send</button>
                             <button id="clear-chat" class="button">Clear</button>
                         </div>
@@ -126,41 +161,76 @@ class WP_Claude_Code_Admin {
                 </div>
                 
                 <div class="tools-sidebar">
-                    <h4>Available Tools</h4>
-                    <div class="tool-status">
-                        <div class="tool-item" data-tool="file_operations">
-                            <span class="tool-icon">📁</span>
-                            <span class="tool-name">File Operations</span>
-                            <span class="tool-status-dot active"></span>
+                    <!-- Conversation History Section -->
+                    <div class="sidebar-section">
+                        <div class="section-header">
+                            <h4>💬 Conversations</h4>
+                            <button id="new-conversation" class="button button-small" title="Start New Conversation">+</button>
                         </div>
-                        <div class="tool-item" data-tool="database">
-                            <span class="tool-icon">🗄️</span>
-                            <span class="tool-name">Database</span>
-                            <span class="tool-status-dot active"></span>
-                        </div>
-                        <div class="tool-item" data-tool="wp_cli">
-                            <span class="tool-icon">⚡</span>
-                            <span class="tool-name">WP-CLI</span>
-                            <span class="tool-status-dot active"></span>
-                        </div>
-                        <div class="tool-item" data-tool="plugin_repository">
-                            <span class="tool-icon">🔍</span>
-                            <span class="tool-name">Plugin Repository</span>
-                            <span class="tool-status-dot active"></span>
-                        </div>
-                        <div class="tool-item" data-tool="staging">
-                            <span class="tool-icon">🚀</span>
-                            <span class="tool-name">Staging</span>
-                            <span class="tool-status-dot"></span>
+                        <div class="conversation-list" id="conversation-list">
+                            <div class="loading-placeholder">Loading conversations...</div>
                         </div>
                     </div>
                     
-                    <div class="quick-actions">
-                        <h4>Quick Actions</h4>
+                    <!-- Saved Prompts Section -->
+                    <div class="sidebar-section">
+                        <div class="section-header">
+                            <h4>💾 Saved Prompts</h4>
+                            <button id="save-prompt" class="button button-small" title="Save Current Message as Prompt">💾</button>
+                        </div>
+                        <div class="prompt-categories">
+                            <select id="prompt-category-filter">
+                                <option value="">All Categories</option>
+                            </select>
+                        </div>
+                        <div class="prompt-list" id="prompt-list">
+                            <div class="loading-placeholder">Loading prompts...</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Available Tools Section -->
+                    <div class="sidebar-section">
+                        <h4>🛠️ Available Tools</h4>
+                        <div class="tool-status">
+                            <div class="tool-item" data-tool="file_operations">
+                                <span class="tool-icon">📁</span>
+                                <span class="tool-name">File Operations</span>
+                                <span class="tool-status-dot active"></span>
+                            </div>
+                            <div class="tool-item" data-tool="database">
+                                <span class="tool-icon">🗄️</span>
+                                <span class="tool-name">Database</span>
+                                <span class="tool-status-dot active"></span>
+                            </div>
+                            <div class="tool-item" data-tool="wp_cli">
+                                <span class="tool-icon">⚡</span>
+                                <span class="tool-name">WP-CLI</span>
+                                <span class="tool-status-dot active"></span>
+                            </div>
+                            <div class="tool-item" data-tool="plugin_repository">
+                                <span class="tool-icon">🔍</span>
+                                <span class="tool-name">Plugin Repository</span>
+                                <span class="tool-status-dot active"></span>
+                            </div>
+                            <div class="tool-item" data-tool="staging">
+                                <span class="tool-icon">🚀</span>
+                                <span class="tool-name">Staging</span>
+                                <span class="tool-status-dot"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Quick Actions Section -->
+                    <div class="sidebar-section">
+                        <h4>⚡ Quick Actions</h4>
                         <button class="button action-btn" data-action="site-info">Site Info</button>
                         <button class="button action-btn" data-action="plugin-list">List Plugins</button>
                         <button class="button action-btn" data-action="theme-info">Active Theme</button>
                         <button class="button action-btn" data-action="db-status">DB Status</button>
+                        <button class="button action-btn" data-action="list-posts">List Posts</button>
+                        <button class="button action-btn" data-action="list-pages">List Pages</button>
+                        <button class="button action-btn" data-action="create-post">Create Post</button>
+                        <button class="button action-btn" data-action="create-page">Create Page</button>
                     </div>
                 </div>
             </div>
@@ -174,36 +244,33 @@ class WP_Claude_Code_Admin {
         }
         
         $settings = get_option('wp_claude_code_settings', array());
-        $using_memberpress_config = !empty($settings['use_memberpress_ai_config']);
         ?>
         <div class="wrap">
             <h1>Claude Code Settings</h1>
-            
-            <?php if ($using_memberpress_config): ?>
-                <div class="notice notice-info">
-                    <p><strong>Integration Detected:</strong> This plugin is configured to use your existing MemberPress AI Assistant LiteLLM proxy and API configuration. The endpoint and API key will be automatically loaded from MemberPress AI settings.</p>
-                </div>
-            <?php endif; ?>
             
             <form method="post" action="">
                 <?php wp_nonce_field('claude_code_settings_nonce'); ?>
                 
                 <table class="form-table">
                     <tr>
-                        <th scope="row">Use MemberPress AI Configuration</th>
+                        <th scope="row">API Provider</th>
                         <td>
-                            <label>
-                                <input type="checkbox" 
-                                       name="use_memberpress_ai_config" 
-                                       value="1" 
-                                       <?php checked(!empty($settings['use_memberpress_ai_config'])); ?> />
-                                Automatically use LiteLLM proxy and API key from MemberPress AI Assistant
-                            </label>
-                            <p class="description">If enabled, will use the existing LiteLLM configuration from MemberPress AI</p>
+                            <select name="api_provider" id="api_provider">
+                                <option value="litellm" <?php selected($settings['api_provider'] ?? 'litellm', 'litellm'); ?>>
+                                    LiteLLM Proxy (Multi-model support)
+                                </option>
+                                <option value="claude_direct" <?php selected($settings['api_provider'] ?? 'litellm', 'claude_direct'); ?>>
+                                    Direct Claude API (Best for image analysis)
+                                </option>
+                                <option value="openai_direct" <?php selected($settings['api_provider'] ?? 'litellm', 'openai_direct'); ?>>
+                                    Direct OpenAI API (GPT-4o with vision)
+                                </option>
+                            </select>
+                            <p class="description">Choose your preferred API provider. Direct APIs offer better image support and reliability.</p>
                         </td>
                     </tr>
                     
-                    <tr>
+                    <tr id="litellm_endpoint_section">
                         <th scope="row">LiteLLM Endpoint</th>
                         <td>
                             <input type="url" 
@@ -215,36 +282,62 @@ class WP_Claude_Code_Admin {
                         </td>
                     </tr>
                     
-                    <tr>
-                        <th scope="row">API Key</th>
+                    <tr id="api_key_section">
+                        <th scope="row">LiteLLM API Key</th>
                         <td>
                             <input type="password" 
                                    name="api_key" 
                                    value="<?php echo esc_attr($settings['api_key'] ?? ''); ?>" 
+                                   class="regular-text" />
+                            <p class="description">API key for your LiteLLM proxy (if required)</p>
+                        </td>
+                    </tr>
+                    
+                    <tr id="claude_api_key_section" style="display: none;">
+                        <th scope="row">Claude API Key</th>
+                        <td>
+                            <input type="password" 
+                                   name="claude_api_key" 
+                                   value="<?php echo esc_attr($settings['claude_api_key'] ?? ''); ?>" 
                                    class="regular-text" 
-                                   <?php echo $using_memberpress_config ? 'placeholder="Auto-loaded from MemberPress AI"' : ''; ?> />
-                            <p class="description">
-                                <?php if ($using_memberpress_config): ?>
-                                    Will be auto-loaded from MemberPress AI. Leave blank to use automatic detection, or enter manually to override.
-                                <?php else: ?>
-                                    API key for your LiteLLM proxy (if required)
-                                <?php endif; ?>
-                            </p>
-                            <?php if ($using_memberpress_config): ?>
-                                <p><a href="<?php echo admin_url('admin.php?page=claude-code-debug'); ?>">🔍 Debug Configuration Loading</a></p>
-                            <?php endif; ?>
+                                   placeholder="sk-ant-..." />
+                            <p class="description">Your Anthropic Claude API key (get from console.anthropic.com)</p>
+                        </td>
+                    </tr>
+                    
+                    <tr id="openai_api_key_section" style="display: none;">
+                        <th scope="row">OpenAI API Key</th>
+                        <td>
+                            <input type="password" 
+                                   name="openai_api_key" 
+                                   value="<?php echo esc_attr($settings['openai_api_key'] ?? ''); ?>" 
+                                   class="regular-text" 
+                                   placeholder="sk-..." />
+                            <p class="description">Your OpenAI API key (get from platform.openai.com)</p>
                         </td>
                     </tr>
                     
                     <tr>
-                        <th scope="row">Model</th>
+                        <th scope="row">Default Model</th>
                         <td>
-                            <select name="model">
-                                <option value="claude-3-sonnet" <?php selected($settings['model'] ?? '', 'claude-3-sonnet'); ?>>Claude 3 Sonnet</option>
-                                <option value="claude-3-opus" <?php selected($settings['model'] ?? '', 'claude-3-opus'); ?>>Claude 3 Opus</option>
-                                <option value="claude-3-haiku" <?php selected($settings['model'] ?? '', 'claude-3-haiku'); ?>>Claude 3 Haiku</option>
-                                <option value="gpt-4" <?php selected($settings['model'] ?? '', 'gpt-4'); ?>>GPT-4</option>
+                            <select name="model" id="model_selector">
+                                <optgroup label="Claude Models (Vision Support)">
+                                    <option value="claude-3-sonnet" <?php selected($settings['model'] ?? '', 'claude-3-sonnet'); ?>>Claude 3 Sonnet 🖼️</option>
+                                    <option value="claude-3-opus" <?php selected($settings['model'] ?? '', 'claude-3-opus'); ?>>Claude 3 Opus 🖼️</option>
+                                    <option value="claude-3-haiku" <?php selected($settings['model'] ?? '', 'claude-3-haiku'); ?>>Claude 3 Haiku 🖼️</option>
+                                </optgroup>
+                                <optgroup label="OpenAI Models (Vision Support)">
+                                    <option value="gpt-4o" <?php selected($settings['model'] ?? '', 'gpt-4o'); ?>>GPT-4o 🖼️</option>
+                                    <option value="gpt-4o-mini" <?php selected($settings['model'] ?? '', 'gpt-4o-mini'); ?>>GPT-4o Mini 🖼️</option>
+                                </optgroup>
+                                <optgroup label="Text-Only Models">
+                                    <option value="gpt-4" <?php selected($settings['model'] ?? '', 'gpt-4'); ?>>GPT-4</option>
+                                    <option value="gpt-3.5-turbo" <?php selected($settings['model'] ?? '', 'gpt-3.5-turbo'); ?>>GPT-3.5 Turbo</option>
+                                </optgroup>
                             </select>
+                            <button type="button" id="refresh-models-settings" class="button" style="margin-left: 10px;">Refresh Models</button>
+                            <p class="description">Default model to use. Users can switch models in the chat interface. 🖼️ = supports image analysis<br>
+                            <span id="models-status">Click "Refresh Models" to load available models from your LiteLLM proxy</span></p>
                         </td>
                     </tr>
                     
@@ -270,6 +363,7 @@ class WP_Claude_Code_Admin {
                                 'wp_cli' => 'WP-CLI Commands',
                                 'db_query' => 'Database Queries',
                                 'plugin_repository' => 'WordPress.org Plugin Repository Check',
+                                'content_management' => 'Content Management (Posts/Pages)',
                                 'staging' => 'Staging Management'
                             );
 
@@ -278,6 +372,20 @@ class WP_Claude_Code_Admin {
                                 echo "<label><input type='checkbox' name='enabled_tools[]' value='$tool' $checked> $label</label><br>";
                             }
                             ?>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th scope="row">Image Processing</th>
+                        <td>
+                            <label for="image_format_override">Force Image Format:</label>
+                            <select name="image_format_override" id="image_format_override">
+                                <option value="auto" <?php selected($settings['image_format_override'] ?? 'auto', 'auto'); ?>>Auto-detect (Recommended)</option>
+                                <option value="openai" <?php selected($settings['image_format_override'] ?? 'auto', 'openai'); ?>>OpenAI format (with URLs)</option>
+                                <option value="openai_base64_only" <?php selected($settings['image_format_override'] ?? 'auto', 'openai_base64_only'); ?>>OpenAI Base64 Only (LiteLLM Fix)</option>
+                                <option value="claude" <?php selected($settings['image_format_override'] ?? 'auto', 'claude'); ?>>Claude format</option>
+                            </select>
+                            <p class="description">Override automatic format detection if you experience image processing issues with your LiteLLM configuration. Use "OpenAI Base64 Only" for custom LiteLLM setups (like .nip.io domains) that reject URL-based images.</p>
                         </td>
                     </tr>
 
@@ -309,9 +417,162 @@ class WP_Claude_Code_Admin {
             
             <div class="test-connection">
                 <h3>Test Connection</h3>
-                <button id="test-connection" class="button">Test LiteLLM Connection</button>
+                <button id="test-connection" class="button">Test API Connection</button>
                 <div id="connection-result"></div>
             </div>
+            
+            <script>
+            jQuery(document).ready(function($) {
+                // Handle API provider selection
+                function toggleProviderSections() {
+                    const provider = $('#api_provider').val();
+                    
+                    // Hide all provider-specific sections
+                    $('#litellm_endpoint_section, #api_key_section, #claude_api_key_section, #openai_api_key_section').hide();
+                    
+                    // Show relevant sections and filter models based on provider
+                    if (provider === 'litellm') {
+                        $('#litellm_endpoint_section, #api_key_section').show();
+                        // LiteLLM supports all models
+                        $('#model_selector optgroup, #model_selector option').show();
+                    } else if (provider === 'claude_direct') {
+                        $('#claude_api_key_section').show();
+                        // Only show Claude models
+                        $('#model_selector optgroup').hide();
+                        $('#model_selector optgroup').first().show(); // Claude models
+                        $('#model_selector option').hide();
+                        $('#model_selector optgroup').first().find('option').show();
+                    } else if (provider === 'openai_direct') {
+                        $('#openai_api_key_section').show();
+                        // Only show OpenAI models
+                        $('#model_selector optgroup').hide();
+                        $('#model_selector optgroup').eq(1).show(); // OpenAI vision models
+                        $('#model_selector optgroup').eq(2).show(); // Text-only models
+                        $('#model_selector option').hide();
+                        $('#model_selector optgroup').eq(1).find('option').show();
+                        $('#model_selector optgroup').eq(2).find('option').show();
+                    }
+                }
+                
+                // All sections now have proper IDs in PHP, no need to add them dynamically
+                
+                // Initial toggle
+                toggleProviderSections();
+                
+                // Handle provider changes
+                $('#api_provider').on('change', toggleProviderSections);
+                
+                // Handle model refresh
+                $('#refresh-models-settings').on('click', function() {
+                    const button = $(this);
+                    const status = $('#models-status');
+                    
+                    button.prop('disabled', true).text('Refreshing...');
+                    status.html('Checking LiteLLM proxy for available models...');
+                    
+                    $.ajax({
+                        url: claudeCode.ajaxUrl,
+                        type: 'POST',
+                        data: {
+                            action: 'claude_code_refresh_models',
+                            nonce: claudeCode.nonce
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                updateModelSelector(response.data.models, '#model_selector');
+                                status.html('<span style="color: #46b450;">✅ Models updated! Found ' + response.data.total_models + ' models from LiteLLM proxy</span>');
+                                
+                                if (response.data.is_fallback) {
+                                    status.append('<br><span style="color: #ffb900;">⚠️ Using fallback models - unable to connect to LiteLLM proxy</span>');
+                                }
+                            } else {
+                                status.html('<span style="color: #dc3232;">❌ Failed to refresh models: ' + (response.data || 'Unknown error') + '</span>');
+                            }
+                        },
+                        error: function() {
+                            status.html('<span style="color: #dc3232;">❌ Network error occurred while refreshing models</span>');
+                        },
+                        complete: function() {
+                            button.prop('disabled', false).text('Refresh Models');
+                        }
+                    });
+                });
+                
+                // Auto-load models on page load if LiteLLM endpoint is configured
+                const endpoint = $('input[name="litellm_endpoint"]').val();
+                if (endpoint && endpoint.trim()) {
+                    setTimeout(() => {
+                        $('#refresh-models-settings').click();
+                    }, 500);
+                }
+                
+                // Provide instant feedback for image format override setting
+                $('#image_format_override').on('change', function() {
+                    const value = $(this).val();
+                    const description = $(this).closest('td').find('.description');
+                    
+                    let helpText = 'Override automatic format detection if you experience image processing issues with your LiteLLM configuration';
+                    
+                    if (value === 'openai') {
+                        helpText += '<br><strong>OpenAI format (with URLs):</strong> Uses image URLs when available, falls back to base64. Best for standard LiteLLM setups.';
+                    } else if (value === 'openai_base64_only') {
+                        helpText += '<br><strong>OpenAI Base64 Only (LiteLLM Fix):</strong> Forces base64 encoding only, bypasses URLs entirely. Use for custom LiteLLM setups (.nip.io domains, tunnels) that reject URL-based images.';
+                    } else if (value === 'claude') {
+                        helpText += '<br><strong>Claude format:</strong> Use if your LiteLLM proxy is specifically configured for native Anthropic API';
+                    } else {
+                        helpText += '<br><strong>Auto-detect:</strong> Automatically chooses format and detects problematic setups (recommended)';
+                    }
+                    
+                    description.html(helpText);
+                });
+                
+                // Helper function to update model selectors
+                function updateModelSelector(models, selectorId) {
+                    const selector = $(selectorId);
+                    const currentValue = selector.val();
+                    
+                    // Clear existing options
+                    selector.empty();
+                    
+                    // Add Claude models
+                    if (models.claude && models.claude.length > 0) {
+                        const claudeGroup = $('<optgroup label="Claude Models (Vision Support)"></optgroup>');
+                        models.claude.forEach(function(model) {
+                            const icon = model.supports_vision ? ' 🖼️' : '';
+                            claudeGroup.append(`<option value="${model.id}">${model.name}${icon}</option>`);
+                        });
+                        selector.append(claudeGroup);
+                    }
+                    
+                    // Add OpenAI models
+                    if (models.openai && models.openai.length > 0) {
+                        const openaiGroup = $('<optgroup label="OpenAI Models"></optgroup>');
+                        models.openai.forEach(function(model) {
+                            const icon = model.supports_vision ? ' 🖼️' : '';
+                            const label = model.supports_vision ? 'OpenAI Models (Vision Support)' : 'OpenAI Models (Text Only)';
+                            openaiGroup.attr('label', label);
+                            openaiGroup.append(`<option value="${model.id}">${model.name}${icon}</option>`);
+                        });
+                        selector.append(openaiGroup);
+                    }
+                    
+                    // Add other models
+                    if (models.other && models.other.length > 0) {
+                        const otherGroup = $('<optgroup label="Other Models"></optgroup>');
+                        models.other.forEach(function(model) {
+                            const icon = model.supports_vision ? ' 🖼️' : '';
+                            otherGroup.append(`<option value="${model.id}">${model.name}${icon}</option>`);
+                        });
+                        selector.append(otherGroup);
+                    }
+                    
+                    // Restore previous selection if it still exists
+                    if (currentValue && selector.find(`option[value="${currentValue}"]`).length > 0) {
+                        selector.val(currentValue);
+                    }
+                }
+            });
+            </script>
         </div>
         <?php
     }
@@ -321,13 +582,46 @@ class WP_Claude_Code_Admin {
             wp_die('Security check failed');
         }
 
+        $api_provider = sanitize_text_field($_POST['api_provider'] ?? 'litellm');
+        $model = sanitize_text_field($_POST['model']);
+        
+        // Validate provider-specific requirements
+        if ($api_provider === 'claude_direct' && empty($_POST['claude_api_key'])) {
+            echo '<div class="notice notice-error"><p>Claude API key is required when using Direct Claude API.</p></div>';
+            return;
+        }
+        
+        if ($api_provider === 'openai_direct' && empty($_POST['openai_api_key'])) {
+            echo '<div class="notice notice-error"><p>OpenAI API key is required when using Direct OpenAI API.</p></div>';
+            return;
+        }
+        
+        if ($api_provider === 'litellm' && empty($_POST['litellm_endpoint'])) {
+            echo '<div class="notice notice-error"><p>LiteLLM endpoint is required when using LiteLLM proxy.</p></div>';
+            return;
+        }
+        
+        // Validate model-provider compatibility
+        if ($api_provider === 'claude_direct' && strpos($model, 'claude') === false) {
+            echo '<div class="notice notice-error"><p>Claude models are required when using Direct Claude API. Please select a Claude model.</p></div>';
+            return;
+        }
+        
+        if ($api_provider === 'openai_direct' && strpos($model, 'gpt') === false) {
+            echo '<div class="notice notice-error"><p>OpenAI models (GPT) are required when using Direct OpenAI API. Please select a GPT model.</p></div>';
+            return;
+        }
+
         $settings = array(
-            'use_memberpress_ai_config' => !empty($_POST['use_memberpress_ai_config']),
+            'api_provider' => $api_provider,
             'litellm_endpoint' => sanitize_url($_POST['litellm_endpoint']),
             'api_key' => sanitize_text_field($_POST['api_key']),
-            'model' => sanitize_text_field($_POST['model']),
+            'claude_api_key' => sanitize_text_field($_POST['claude_api_key']),
+            'openai_api_key' => sanitize_text_field($_POST['openai_api_key']),
+            'model' => $model,
             'max_tokens' => absint($_POST['max_tokens']),
             'enabled_tools' => array_map('sanitize_text_field', $_POST['enabled_tools'] ?? array()),
+            'image_format_override' => sanitize_text_field($_POST['image_format_override'] ?? 'auto'),
             'chat_ui_enabled' => !empty($_POST['chat_ui_enabled']),
             'chat_ui_renderer' => sanitize_text_field($_POST['chat_ui_renderer'] ?? 'client')
         );
@@ -536,6 +830,8 @@ class WP_Claude_Code_Admin {
         
         $message = sanitize_textarea_field($_POST['message']);
         $conversation_id = sanitize_text_field($_POST['conversation_id'] ?? '');
+        $model = sanitize_text_field($_POST['model'] ?? '');
+        $attachments = array_map('sanitize_text_field', $_POST['attachments'] ?? array());
         
         if (empty($conversation_id)) {
             $conversation_id = uniqid('conv_');
@@ -546,7 +842,13 @@ class WP_Claude_Code_Admin {
         
         // Process with Claude API
         $claude_api = new WP_Claude_Code_Claude_API();
-        $response = $claude_api->send_message($message, $conversation_id);
+        
+        // Use specified model if provided
+        if (!empty($model)) {
+            $claude_api->set_model($model);
+        }
+        
+        $response = $claude_api->send_message($message, $conversation_id, $attachments);
         
         if (is_wp_error($response)) {
             wp_send_json_error($response->get_error_message());
@@ -579,4 +881,377 @@ class WP_Claude_Code_Admin {
             array('%d', '%s', '%s', '%s', '%s')
         );
     }
+    
+    public function handle_set_model() {
+        check_ajax_referer('claude_code_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $model = sanitize_text_field($_POST['model']);
+        $user_id = get_current_user_id();
+        
+        // Check provider compatibility
+        $settings = get_option('wp_claude_code_settings', array());
+        $provider = $settings['api_provider'] ?? 'litellm';
+        
+        // Validate model-provider compatibility unless using LiteLLM (which supports all models)
+        if ($provider === 'claude_direct' && strpos($model, 'claude') === false) {
+            wp_send_json_error('Claude models are required when using Direct Claude API. Current provider: ' . $provider);
+            return;
+        }
+        
+        if ($provider === 'openai_direct' && strpos($model, 'gpt') === false) {
+            wp_send_json_error('OpenAI models (GPT) are required when using Direct OpenAI API. Current provider: ' . $provider);
+            return;
+        }
+        
+        // Save user's model preference
+        update_user_meta($user_id, 'claude_code_preferred_model', $model);
+        
+        wp_send_json_success(array(
+            'message' => 'Model preference saved',
+            'model' => $model,
+            'provider' => $provider
+        ));
+    }
+    
+    public function handle_get_user_model() {
+        check_ajax_referer('claude_code_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $user_id = get_current_user_id();
+        $preferred_model = get_user_meta($user_id, 'claude_code_preferred_model', true);
+        
+        // If no preference set, use default from settings
+        if (empty($preferred_model)) {
+            $settings = get_option('wp_claude_code_settings', array());
+            $preferred_model = $settings['model'] ?? 'claude-3-sonnet';
+        }
+        
+        wp_send_json_success(array('model' => $preferred_model));
+    }
+    
+    public function handle_debug_image() {
+        check_ajax_referer('claude_code_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $claude_api = new WP_Claude_Code_Claude_API();
+        $settings = get_option('wp_claude_code_settings', array());
+        
+        // Get current model from settings or user preference
+        $user_id = get_current_user_id();
+        $user_model = get_user_meta($user_id, 'claude_code_preferred_model', true);
+        $default_model = $settings['model'] ?? 'claude-3-sonnet';
+        $current_model = $user_model ?: $default_model;
+        
+        // Check if model supports vision
+        $vision_models = array(
+            'claude-3-sonnet', 'claude-3-opus', 'claude-3-haiku', 
+            'gpt-4o', 'gpt-4o-mini', 'gpt-4-vision-preview'
+        );
+        $supports_vision = in_array($current_model, $vision_models);
+        
+        $debug_info = array(
+            'current_model' => $current_model,
+            'model_supports_vision' => $supports_vision,
+            'image_format_override' => $settings['image_format_override'] ?? 'auto',
+            'litellm_endpoint' => $settings['litellm_endpoint'] ?? 'not set',
+            'api_key_configured' => !empty($settings['api_key']),
+            'vision_models' => $vision_models,
+            'endpoint_suggests_litellm' => (strpos($settings['litellm_endpoint'] ?? '', 'anthropic') === false && 
+                                          strpos($settings['litellm_endpoint'] ?? '', 'claude') === false)
+        );
+        
+        wp_send_json_success($debug_info);
+    }
+    
+    public function handle_test_image_format() {
+        check_ajax_referer('claude_code_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $claude_api = new WP_Claude_Code_Claude_API();
+        $settings = get_option('wp_claude_code_settings', array());
+        
+        // Create a simple test image (1x1 pixel base64 PNG)
+        $test_image_base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+        
+        // Create a temporary test image URL by saving the test image
+        $test_image_url = $this->create_test_image_url($test_image_base64);
+        
+        $test_results = array();
+        
+        // Test OpenAI format with URL (preferred method)
+        $openai_url_message = array(
+            'role' => 'user',
+            'content' => array(
+                array('type' => 'text', 'text' => 'Test image URL'),
+                array(
+                    'type' => 'image_url',
+                    'image_url' => array(
+                        'url' => $test_image_url
+                    )
+                )
+            )
+        );
+        
+        $test_results['openai_url_format'] = $this->test_api_request($openai_url_message, 'gpt-4o-mini');
+        
+        // Test OpenAI format with base64 (fallback method)
+        $openai_base64_message = array(
+            'role' => 'user',
+            'content' => array(
+                array('type' => 'text', 'text' => 'Test image base64'),
+                array(
+                    'type' => 'image_url',
+                    'image_url' => array(
+                        'url' => 'data:image/png;base64,' . $test_image_base64
+                    )
+                )
+            )
+        );
+        
+        $test_results['openai_base64_format'] = $this->test_api_request($openai_base64_message, 'gpt-4o-mini');
+        
+        // Test Claude format with base64 (Claude doesn't officially support URLs)
+        $claude_message = array(
+            'role' => 'user',
+            'content' => array(
+                array('type' => 'text', 'text' => 'Test image'),
+                array(
+                    'type' => 'image',
+                    'source' => array(
+                        'type' => 'base64',
+                        'media_type' => 'image/png',
+                        'data' => $test_image_base64
+                    )
+                )
+            )
+        );
+        
+        $test_results['claude_format'] = $this->test_api_request($claude_message, 'claude-3-sonnet');
+        
+        // Clean up test image
+        $this->cleanup_test_image($test_image_url);
+        
+        wp_send_json_success($test_results);
+    }
+    
+    private function create_test_image_url($base64_data) {
+        // Create a temporary test image in uploads directory
+        $upload_dir = wp_upload_dir();
+        $test_dir = trailingslashit($upload_dir['basedir']) . 'claude-code-temp';
+        
+        if (!file_exists($test_dir)) {
+            wp_mkdir_p($test_dir);
+        }
+        
+        $test_filename = 'test_image_' . uniqid() . '.png';
+        $test_filepath = trailingslashit($test_dir) . $test_filename;
+        
+        // Decode and save the test image
+        $image_data = base64_decode($base64_data);
+        file_put_contents($test_filepath, $image_data);
+        
+        // Return the URL
+        $test_url = trailingslashit($upload_dir['baseurl']) . 'claude-code-temp/' . $test_filename;
+        return $test_url;
+    }
+    
+    private function cleanup_test_image($test_url) {
+        // Extract filename from URL and delete the test image
+        $upload_dir = wp_upload_dir();
+        $relative_url = str_replace($upload_dir['baseurl'], '', $test_url);
+        $filepath = $upload_dir['basedir'] . $relative_url;
+        
+        if (file_exists($filepath) && strpos($filepath, 'claude-code-temp/test_image_') !== false) {
+            unlink($filepath);
+        }
+    }
+    
+    private function test_api_request($message, $model) {
+        $settings = get_option('wp_claude_code_settings', array());
+        $endpoint = $settings['litellm_endpoint'] ?? '';
+        
+        if (empty($endpoint)) {
+            return array('success' => false, 'error' => 'No endpoint configured');
+        }
+        
+        $url = rtrim($endpoint, '/') . '/v1/chat/completions';
+        
+        $data = array(
+            'model' => $model,
+            'messages' => array($message),
+            'max_tokens' => 10
+        );
+        
+        $headers = array('Content-Type' => 'application/json');
+        if (!empty($settings['api_key'])) {
+            $headers['Authorization'] = 'Bearer ' . $settings['api_key'];
+        }
+        
+        $response = wp_remote_post($url, array(
+            'headers' => $headers,
+            'body' => json_encode($data),
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            return array('success' => false, 'error' => $response->get_error_message());
+        }
+        
+        $status_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        return array(
+            'success' => $status_code === 200,
+            'status_code' => $status_code,
+            'response' => $status_code === 200 ? 'Success' : $body
+        );
+    }
+    
+    public function handle_test_litellm_direct() {
+        check_ajax_referer('claude_code_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $settings = get_option('wp_claude_code_settings', array());
+        $endpoint = $settings['litellm_endpoint'] ?? '';
+        $api_key = $settings['api_key'] ?? '';
+        
+        if (empty($endpoint)) {
+            wp_send_json_error('No LiteLLM endpoint configured');
+        }
+        
+        $url = rtrim($endpoint, '/') . '/v1/chat/completions';
+        
+        // Test with a simple text message first
+        $text_message = array(
+            'model' => 'gpt-4o-mini',
+            'messages' => array(
+                array(
+                    'role' => 'user',
+                    'content' => 'Respond with just "OK" to confirm the connection is working.'
+                )
+            ),
+            'max_tokens' => 10
+        );
+        
+        $headers = array('Content-Type' => 'application/json');
+        if (!empty($api_key)) {
+            $headers['Authorization'] = 'Bearer ' . $api_key;
+        }
+        
+        $response = wp_remote_post($url, array(
+            'headers' => $headers,
+            'body' => json_encode($text_message),
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            wp_send_json_error('Connection failed: ' . $response->get_error_message());
+        }
+        
+        $status_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        if ($status_code !== 200) {
+            wp_send_json_error('LiteLLM returned HTTP ' . $status_code . ': ' . $body);
+        }
+        
+        $result = json_decode($body, true);
+        if (!$result || !isset($result['choices'][0]['message']['content'])) {
+            wp_send_json_error('Invalid response from LiteLLM: ' . $body);
+        }
+        
+        wp_send_json_success(array(
+            'message' => 'LiteLLM connection successful',
+            'response' => $result['choices'][0]['message']['content'],
+            'endpoint' => $endpoint,
+            'model_used' => $result['model'] ?? 'unknown'
+        ));
+    }
+    
+    /**
+     * Handle provider-aware test connection
+     */
+    public function handle_test_connection() {
+        check_ajax_referer('claude_code_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $settings = get_option('wp_claude_code_settings', array());
+        $provider = $settings['api_provider'] ?? 'litellm';
+        
+        $claude_api = new WP_Claude_Code_Claude_API();
+        
+        try {
+            // Test a simple message based on provider
+            $test_message = "Hello! This is a connection test. Please respond with 'Connection successful'.";
+            $result = $claude_api->send_message($test_message);
+            
+            if (is_wp_error($result)) {
+                wp_send_json_error(array(
+                    'message' => 'Connection failed: ' . $result->get_error_message(),
+                    'provider' => $provider
+                ));
+            } else {
+                wp_send_json_success(array(
+                    'message' => 'Connection successful! Provider: ' . ucfirst($provider),
+                    'response' => $result['response'] ?? 'No response content',
+                    'provider' => $provider
+                ));
+            }
+        } catch (Exception $e) {
+            wp_send_json_error(array(
+                'message' => 'Connection error: ' . $e->getMessage(),
+                'provider' => $provider
+            ));
+        }
+    }
+    
+    /**
+     * Handle AJAX request to get available models
+     */
+    public function handle_get_available_models() {
+        check_ajax_referer('claude_code_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $claude_api = new WP_Claude_Code_Claude_API();
+        $models = $claude_api->get_available_models();
+        
+        if (is_wp_error($models)) {
+            wp_send_json_error($models->get_error_message());
+        }
+        
+        // Count total models across all categories
+        $total_models = 0;
+        if (isset($models['claude'])) $total_models += count($models['claude']);
+        if (isset($models['openai'])) $total_models += count($models['openai']);
+        if (isset($models['other'])) $total_models += count($models['other']);
+        
+        wp_send_json_success(array(
+            'models' => $models,
+            'total_models' => $total_models,
+            'is_fallback' => false // Our method handles fallbacks internally
+        ));
+    }
+    
 }
