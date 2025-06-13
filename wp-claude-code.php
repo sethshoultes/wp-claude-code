@@ -54,6 +54,7 @@ class WP_Claude_Code {
         require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-database.php';
         require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-wp-cli-bridge.php';
         require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-claude-api.php';
+        require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-plugin-repository.php';
     }
     
     public function activate() {
@@ -66,8 +67,9 @@ class WP_Claude_Code {
             'api_key' => '',
             'model' => 'claude-3-sonnet-20240229',
             'max_tokens' => 4000,
-            'enabled_tools' => array('file_read', 'file_edit', 'wp_cli', 'db_query'),
-            'use_memberpress_ai_config' => true // Try to auto-detect from MemberPress AI
+            'enabled_tools' => array('file_read', 'file_edit', 'wp_cli', 'db_query', 'plugin_repository'),
+            'use_memberpress_ai_config' => true, // Try to auto-detect from MemberPress AI
+            'plugin_repository_enabled' => true // WordPress.org plugin repository integration
         ));
         
         // Flush rewrite rules for API endpoints

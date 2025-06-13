@@ -143,6 +143,11 @@ class WP_Claude_Code_Admin {
                             <span class="tool-name">WP-CLI</span>
                             <span class="tool-status-dot active"></span>
                         </div>
+                        <div class="tool-item" data-tool="plugin_repository">
+                            <span class="tool-icon">🔍</span>
+                            <span class="tool-name">Plugin Repository</span>
+                            <span class="tool-status-dot active"></span>
+                        </div>
                         <div class="tool-item" data-tool="staging">
                             <span class="tool-icon">🚀</span>
                             <span class="tool-name">Staging</span>
@@ -264,6 +269,7 @@ class WP_Claude_Code_Admin {
                                 'file_edit' => 'File Editing',
                                 'wp_cli' => 'WP-CLI Commands',
                                 'db_query' => 'Database Queries',
+                                'plugin_repository' => 'WordPress.org Plugin Repository Check',
                                 'staging' => 'Staging Management'
                             );
                             

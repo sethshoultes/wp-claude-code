@@ -125,6 +125,7 @@ AVAILABLE TOOLS:
 - wp_cli_exec: Run WP-CLI commands
 - wp_content_create: Create posts, pages, and custom content
 - wp_staging_create: Create staging environments
+- wp_plugin_check: Check WordPress.org plugin repository for plugin availability and details
 
 CAPABILITIES:
 1. Theme and plugin development assistance
@@ -154,7 +155,7 @@ How can I help you with your WordPress development today?";
     private function get_available_tools() {
         $enabled_tools = $this->settings['enabled_tools'] ?? array();
         $tools = array();
-        
+
         if (in_array('file_read', $enabled_tools)) {
             $tools[] = array(
                 'type' => 'function',
@@ -170,6 +171,33 @@ How can I help you with your WordPress development today?";
                             )
                         ),
                         'required' => array('file_path')
+                    )
+                )
+            );
+        }
+
+        // Always enable the plugin repository check
+        if (in_array('plugin_repository', $enabled_tools) || true) {
+            $tools[] = array(
+                'type' => 'function',
+                'function' => array(
+                    'name' => 'wp_plugin_check',
+                    'description' => 'Check if a plugin is available in the WordPress.org repository and get details about it',
+                    'parameters' => array(
+                        'type' => 'object',
+                        'properties' => array(
+                            'plugin_name' => array(
+                                'type' => 'string',
+                                'description' => 'The name or slug of the plugin to check'
+                            ),
+                            'detail_level' => array(
+                                'type' => 'string',
+                                'enum' => array('basic', 'detailed', 'installation'),
+                                'description' => 'The level of detail to return (basic, detailed, or installation instructions)',
+                                'default' => 'basic'
+                            )
+                        ),
+                        'required' => array('plugin_name')
                     )
                 )
             );
@@ -437,12 +465,12 @@ How can I help you with your WordPress development today?";
     
     private function execute_tool($function_name, $arguments) {
         error_log("WP Claude Code: Executing tool: $function_name with arguments: " . json_encode($arguments));
-        
+
         switch ($function_name) {
             case 'wp_file_read':
                 $result = WP_Claude_Code_Filesystem::read_file($arguments['file_path']);
                 break;
-                
+
             case 'wp_file_edit':
                 $result = WP_Claude_Code_Filesystem::edit_file(
                     $arguments['file_path'],
@@ -450,41 +478,64 @@ How can I help you with your WordPress development today?";
                     $arguments['backup'] ?? true
                 );
                 break;
-                
+
             case 'wp_cli_exec':
                 $result = WP_Claude_Code_WP_CLI_Bridge::execute($arguments['command']);
                 error_log("WP Claude Code: WP-CLI result: " . json_encode($result));
                 break;
-                
+
             case 'wp_db_query':
                 $result = WP_Claude_Code_Database::execute_query(
                     $arguments['query'],
                     $arguments['query_type']
                 );
                 break;
-                
+
+            case 'wp_plugin_check':
+                // Load the plugin repository class
+                if (!class_exists('WP_Claude_Code_Plugin_Repository')) {
+                    require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-plugin-repository.php';
+                }
+
+                $plugin_name = $arguments['plugin_name'];
+                $detail_level = $arguments['detail_level'] ?? 'basic';
+
+                $repository = WP_Claude_Code_Plugin_Repository::get_instance();
+
+                if ($detail_level === 'basic') {
+                    $result = $repository->check_plugin_availability($plugin_name);
+                    if (!is_wp_error($result)) {
+                        $result = "Plugin check for \"{$plugin_name}\":\n\n" . $result['message'];
+                    }
+                } elseif ($detail_level === 'detailed') {
+                    $result = $repository->get_formatted_plugin_details($plugin_name);
+                } elseif ($detail_level === 'installation') {
+                    $result = $repository->get_installation_instructions($plugin_name);
+                }
+                break;
+
             case 'wp_site_info':
                 $info_type = $arguments['info_type'] ?? 'all';
                 $result = $this->get_site_info_native($info_type);
                 break;
-                
+
             case 'wp_content_list':
                 $post_type = $arguments['post_type'] ?? 'post';
                 $status = $arguments['status'] ?? 'any';
                 $limit = min(intval($arguments['limit'] ?? 20), 50);
                 $result = $this->get_content_list($post_type, $status, $limit);
                 break;
-                
+
             case 'wp_theme_info':
                 $include_files = $arguments['include_files'] ?? true;
                 $result = $this->get_theme_info($include_files);
                 break;
-                
+
             case 'wp_database_status':
                 $include_tables = $arguments['include_tables'] ?? true;
                 $result = $this->get_database_status($include_tables);
                 break;
-                
+
             default:
                 return new WP_Error('unknown_tool', "Unknown tool: $function_name");
         }
