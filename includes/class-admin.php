@@ -1254,4 +1254,36 @@ class WP_Claude_Code_Admin {
         ));
     }
     
+    /**
+     * Handle AJAX request to refresh models cache
+     */
+    public function handle_refresh_models() {
+        check_ajax_referer('claude_code_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $claude_api = new WP_Claude_Code_Claude_API();
+        
+        // Clear cache and get fresh models
+        $claude_api->clear_models_cache();
+        $models = $claude_api->get_available_models();
+        
+        if (is_wp_error($models)) {
+            wp_send_json_error($models->get_error_message());
+        }
+        
+        // Count total models across all categories
+        $total_models = 0;
+        if (isset($models['claude'])) $total_models += count($models['claude']);
+        if (isset($models['openai'])) $total_models += count($models['openai']);
+        if (isset($models['other'])) $total_models += count($models['other']);
+        
+        wp_send_json_success(array(
+            'models' => $models,
+            'total_models' => $total_models,
+            'is_fallback' => false // Our method handles fallbacks internally
+        ));
+    }
 }
