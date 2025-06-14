@@ -29,7 +29,7 @@ class WP_Claude_Code_Claude_API {
         } elseif (strpos($model, 'gpt') !== false) {
             return 'openai_direct';
         }
-        return 'litellm';
+        return 'openai_direct'; // Default to OpenAI for unknown models
     }
     
     /**
@@ -72,75 +72,11 @@ class WP_Claude_Code_Claude_API {
             case 'claude_direct':
                 return $this->send_message_claude_direct($message, $conversation_id, $attachments);
             case 'openai_direct':
-                return $this->send_message_openai_direct($message, $conversation_id, $attachments);
-            case 'litellm':
             default:
-                return $this->send_message_litellm($message, $conversation_id, $attachments);
+                return $this->send_message_openai_direct($message, $conversation_id, $attachments);
         }
     }
     
-    /**
-     * Send message via LiteLLM proxy (existing implementation)
-     */
-    private function send_message_litellm($message, $conversation_id = '', $attachments = array()) {
-        $endpoint = $this->settings['litellm_endpoint'] ?? '';
-        
-        if (empty($endpoint)) {
-            return new WP_Error('no_endpoint', 'LiteLLM endpoint not configured');
-        }
-        
-        $conversation_history = $this->get_conversation_history($conversation_id);
-        $system_prompt = $this->get_system_prompt();
-        $tools = $this->get_available_tools();
-        
-        $messages = array();
-        
-        // Add system message
-        $messages[] = array(
-            'role' => 'system',
-            'content' => $system_prompt
-        );
-        
-        // Add conversation history
-        foreach ($conversation_history as $msg) {
-            $messages[] = array(
-                'role' => $msg->message_type === 'user' ? 'user' : 'assistant',
-                'content' => $msg->content
-            );
-        }
-        
-        // Prepare current message with attachments (existing method)
-        $current_message = $this->prepare_message_with_attachments($message, $attachments);
-        $messages[] = $current_message;
-        
-        $request_data = array(
-            'model' => $this->current_model,
-            'messages' => $messages,
-            'max_tokens' => intval($this->settings['max_tokens'] ?? 4000),
-            'tools' => $tools
-        );
-        
-        // Enhanced debugging for image processing issues
-        error_log('WP Claude Code: API Request - Model: ' . $this->current_model);
-        error_log('WP Claude Code: API Request - Messages count: ' . count($messages));
-        error_log('WP Claude Code: API Request - Has attachments: ' . (!empty($attachments) ? 'Yes' : 'No'));
-        error_log('WP Claude Code: API Request - Image format override: ' . ($this->settings['image_format_override'] ?? 'auto'));
-        error_log('WP Claude Code: API Request - LiteLLM Endpoint: ' . ($this->settings['litellm_endpoint'] ?? 'Not set'));
-        
-        // Check if this is a potentially problematic LiteLLM setup
-        $endpoint = $this->settings['litellm_endpoint'] ?? '';
-        if (!empty($endpoint) && $this->is_problematic_litellm_setup($endpoint)) {
-            error_log('WP Claude Code: WARNING - Detected potentially problematic LiteLLM setup that may reject image URLs');
-        }
-        
-        $response = $this->make_api_request($endpoint, $request_data);
-        
-        if (is_wp_error($response)) {
-            return $response;
-        }
-        
-        return $this->process_response($response);
-    }
     
     /**
      * Send message via direct Claude API
@@ -320,106 +256,12 @@ class WP_Claude_Code_Claude_API {
     }
     
     /**
-     * Smart image formatting based on LiteLLM proxy configuration
+     * Format image for direct API use (simplified from LiteLLM version)
      */
     private function format_image_for_model($attachment_data) {
-        // Check for format override setting
-        $format_override = $this->settings['image_format_override'] ?? 'auto';
-        
-        // Enhanced format detection for problematic LiteLLM setups
-        if ($format_override === 'auto') {
-            $format = $this->detect_optimal_image_format();
-        } else {
-            $format = $format_override;
-            error_log('WP Claude Code: Using forced format override: ' . $format);
-        }
-        
-        // Handle the new "openai_base64_only" format for problematic LiteLLM configurations
-        if ($format === 'openai_base64_only') {
-            error_log('WP Claude Code: Using OpenAI base64-only format (LiteLLM fix mode)');
-            
-            // Validate that we have the required data
-            if (empty($attachment_data['base64_data'])) {
-                error_log('WP Claude Code: ERROR - Missing base64_data in attachment_data');
-                return null;
-            }
-            
-            if (empty($attachment_data['media_type'])) {
-                error_log('WP Claude Code: ERROR - Missing media_type in attachment_data');
-                return null;
-            }
-            
-            // For problematic LiteLLM setups, use a shorter data URL format
-            // Some WordPress HTTP implementations can't handle very long URLs
-            $base64_length = strlen($attachment_data['base64_data']);
-            error_log('WP Claude Code: Base64 data length: ' . $base64_length . ' characters');
-            
-            if ($base64_length > 500000) {
-                error_log('WP Claude Code: WARNING - Base64 data very large, may cause HTTP issues');
-                // Return null to fall back to text description
-                return null;
-            }
-            
-            $data_url = "data:{$attachment_data['media_type']};base64,{$attachment_data['base64_data']}";
-            error_log('WP Claude Code: Created data URL (length: ' . strlen($data_url) . ' chars)');
-            
-            return array(
-                'type' => 'image_url',
-                'image_url' => array(
-                    'url' => $data_url
-                )
-            );
-        }
-        
-        // For standard formats, check if we should try URLs first (not for base64-only mode)
-        $should_try_url = !empty($attachment_data['url']) && 
-                         $format !== 'openai_base64_only' && 
-                         $this->should_use_image_url();
-        
-        if ($should_try_url) {
-            error_log('WP Claude Code: Attempting to use image URL for better compatibility: ' . $attachment_data['url']);
-            
-            // Test if the URL is accessible
-            $url_test = wp_remote_head($attachment_data['url'], array('timeout' => 5));
-            if (is_wp_error($url_test)) {
-                error_log('WP Claude Code: URL accessibility test failed: ' . $url_test->get_error_message());
-                error_log('WP Claude Code: Falling back to base64 due to URL accessibility issue');
-            } else {
-                $response_code = wp_remote_retrieve_response_code($url_test);
-                error_log('WP Claude Code: URL accessibility test - HTTP ' . $response_code);
-                
-                if ($response_code === 200) {
-                    if ($format === 'claude') {
-                        // Claude format doesn't officially support URLs, but let's try it
-                        // If this fails, we'll fall back to base64
-                        return array(
-                            'type' => 'image',
-                            'source' => array(
-                                'type' => 'url',
-                                'media_type' => $attachment_data['media_type'],
-                                'url' => $attachment_data['url']
-                            )
-                        );
-                    } else {
-                        // OpenAI format with URL (much better for LiteLLM)
-                        return array(
-                            'type' => 'image_url',
-                            'image_url' => array(
-                                'url' => $attachment_data['url']
-                            )
-                        );
-                    }
-                } else {
-                    error_log('WP Claude Code: URL returned HTTP ' . $response_code . ', falling back to base64');
-                }
-            }
-        }
-        
-        // Fallback to base64 if no URL is available or URL failed
-        error_log('WP Claude Code: Using base64 format (URL not available or failed)');
-        
-        if ($format === 'claude') {
-            error_log('WP Claude Code: Using Claude/Anthropic base64 format for model: ' . $this->current_model);
+        // Determine format based on current API provider
+        if ($this->api_provider === 'claude_direct') {
+            // Claude format - always use base64
             return array(
                 'type' => 'image',
                 'source' => array(
@@ -429,7 +271,21 @@ class WP_Claude_Code_Claude_API {
                 )
             );
         } else {
-            error_log('WP Claude Code: Using OpenAI base64 format for model: ' . $this->current_model);
+            // OpenAI format - try URL first, fall back to base64
+            if (!empty($attachment_data['url'])) {
+                // Test if the URL is accessible
+                $url_test = wp_remote_head($attachment_data['url'], array('timeout' => 5));
+                if (!is_wp_error($url_test) && wp_remote_retrieve_response_code($url_test) === 200) {
+                    return array(
+                        'type' => 'image_url',
+                        'image_url' => array(
+                            'url' => $attachment_data['url']
+                        )
+                    );
+                }
+            }
+            
+            // Fallback to base64 for OpenAI
             return array(
                 'type' => 'image_url',
                 'image_url' => array(
@@ -618,7 +474,7 @@ class WP_Claude_Code_Claude_API {
             }
             
             return array(
-                'response' => $content,
+                'content' => $content,
                 'tools_used' => $tools_used
             );
         }
@@ -649,7 +505,7 @@ class WP_Claude_Code_Claude_API {
             }
             
             return array(
-                'response' => $content,
+                'content' => $content,
                 'tools_used' => $tools_used
             );
         }
@@ -716,47 +572,10 @@ class WP_Claude_Code_Claude_API {
     }
     
     /**
-     * Get available models from LiteLLM proxy with caching
+     * Get available models for the current provider
      */
     public function get_available_models() {
-        // Only query LiteLLM when using LiteLLM provider
-        if ($this->api_provider !== 'litellm') {
-            return $this->get_provider_specific_models();
-        }
-        
-        // Check cache first
-        $cache_key = 'wp_claude_code_available_models';
-        $cached_models = get_transient($cache_key);
-        if ($cached_models !== false) {
-            return $cached_models;
-        }
-        
-        $endpoint = $this->settings['litellm_endpoint'] ?? '';
-        if (empty($endpoint)) {
-            return $this->get_fallback_models();
-        }
-        
-        $models_url = rtrim($endpoint, '/') . '/v1/models';
-        $api_key = $this->settings['api_key'] ?? '';
-        
-        $headers = array('Content-Type: application/json');
-        if (!empty($api_key)) {
-            $headers[] = 'Authorization: Bearer ' . $api_key;
-        }
-        
-        $response = $this->make_http_request_get($models_url, $headers);
-        
-        if (is_wp_error($response)) {
-            error_log('WP Claude Code: Failed to fetch models from LiteLLM: ' . $response->get_error_message());
-            return $this->get_fallback_models();
-        }
-        
-        $processed_models = $this->process_models_response($response);
-        
-        // Cache for 1 hour
-        set_transient($cache_key, $processed_models, HOUR_IN_SECONDS);
-        
-        return $processed_models;
+        return $this->get_provider_specific_models();
     }
     
     /**
@@ -767,194 +586,66 @@ class WP_Claude_Code_Claude_API {
             case 'claude_direct':
                 return array(
                     'claude' => array(
-                        array('id' => 'claude-3-sonnet-20240229', 'name' => 'Claude 3 Sonnet', 'supports_vision' => true),
-                        array('id' => 'claude-3-opus-20240229', 'name' => 'Claude 3 Opus', 'supports_vision' => true),
-                        array('id' => 'claude-3-haiku-20240307', 'name' => 'Claude 3 Haiku', 'supports_vision' => true)
+                        array('id' => 'claude-3-5-sonnet-20241022', 'name' => 'Claude 3.5 Sonnet', 'supports_vision' => true),
+                        array('id' => 'claude-3-5-haiku-20241022', 'name' => 'Claude 3.5 Haiku', 'supports_vision' => true),
+                        array('id' => 'claude-3-opus-20240229', 'name' => 'Claude 3 Opus', 'supports_vision' => true)
                     ),
                     'openai' => array(),
                     'other' => array()
                 );
             case 'openai_direct':
+            default:
                 return array(
                     'claude' => array(),
                     'openai' => array(
                         array('id' => 'gpt-4o', 'name' => 'GPT-4o', 'supports_vision' => true),
                         array('id' => 'gpt-4o-mini', 'name' => 'GPT-4o Mini', 'supports_vision' => true),
-                        array('id' => 'gpt-4', 'name' => 'GPT-4', 'supports_vision' => false),
-                        array('id' => 'gpt-3.5-turbo', 'name' => 'GPT-3.5 Turbo', 'supports_vision' => false)
+                        array('id' => 'gpt-4-turbo', 'name' => 'GPT-4 Turbo', 'supports_vision' => true)
                     ),
                     'other' => array()
                 );
-            default:
-                return $this->get_fallback_models();
         }
     }
     
     /**
-     * Process models response from LiteLLM
-     */
-    private function process_models_response($response) {
-        if (!isset($response['data']) || !is_array($response['data'])) {
-            return $this->get_fallback_models();
-        }
-        
-        $models = array(
-            'claude' => array(),
-            'openai' => array(),
-            'other' => array()
-        );
-        
-        foreach ($response['data'] as $model) {
-            $model_id = $model['id'] ?? '';
-            if (empty($model_id)) continue;
-            
-            $name = $this->get_friendly_model_name($model_id);
-            $vision = $this->model_supports_vision($model_id);
-            
-            $model_data = array(
-                'id' => $model_id,
-                'name' => $name,
-                'supports_vision' => $vision
-            );
-            
-            if (strpos($model_id, 'claude') !== false) {
-                $models['claude'][] = $model_data;
-            } elseif (strpos($model_id, 'gpt') !== false) {
-                $models['openai'][] = $model_data;
-            } else {
-                $models['other'][] = $model_data;
-            }
-        }
-        
-        return $models;
-    }
-    
-    /**
-     * Get friendly name for model
-     */
-    private function get_friendly_model_name($model_id) {
-        $friendly_names = array(
-            'claude-3-sonnet-20240229' => 'Claude 3 Sonnet',
-            'claude-3-opus-20240229' => 'Claude 3 Opus',
-            'claude-3-haiku-20240307' => 'Claude 3 Haiku',
-            'claude-3-sonnet' => 'Claude 3 Sonnet',
-            'claude-3-opus' => 'Claude 3 Opus',
-            'claude-3-haiku' => 'Claude 3 Haiku',
-            'gpt-4o' => 'GPT-4o',
-            'gpt-4o-mini' => 'GPT-4o Mini',
-            'gpt-4' => 'GPT-4',
-            'gpt-3.5-turbo' => 'GPT-3.5 Turbo'
-        );
-        
-        return $friendly_names[$model_id] ?? $model_id;
-    }
-    
-    /**
-     * Get fallback models when API is unavailable
-     */
-    private function get_fallback_models() {
-        return array(
-            'claude' => array(
-                array('id' => 'claude-3-sonnet-20240229', 'name' => 'Claude 3 Sonnet', 'supports_vision' => true),
-                array('id' => 'claude-3-sonnet', 'name' => 'Claude 3 Sonnet', 'supports_vision' => true),
-                array('id' => 'claude-3-opus-20240229', 'name' => 'Claude 3 Opus', 'supports_vision' => true),
-                array('id' => 'claude-3-haiku-20240307', 'name' => 'Claude 3 Haiku', 'supports_vision' => true)
-            ),
-            'openai' => array(
-                array('id' => 'gpt-4o', 'name' => 'GPT-4o', 'supports_vision' => true),
-                array('id' => 'gpt-4o-mini', 'name' => 'GPT-4o Mini', 'supports_vision' => true),
-                array('id' => 'gpt-4', 'name' => 'GPT-4', 'supports_vision' => false),
-                array('id' => 'gpt-3.5-turbo', 'name' => 'GPT-3.5 Turbo', 'supports_vision' => false)
-            ),
-            'other' => array()
-        );
-    }
-    
-    /**
-     * Clear models cache
+     * Clear models cache (no longer needed for direct APIs but kept for compatibility)
      */
     public function clear_models_cache() {
-        delete_transient('wp_claude_code_available_models');
-    }
-    
-    /**
-     * Make GET HTTP request
-     */
-    private function make_http_request_get($url, $headers) {
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-        
-        $response = curl_exec($ch);
-        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $error = curl_error($ch);
-        curl_close($ch);
-        
-        if ($error) {
-            return new WP_Error('curl_error', 'HTTP request failed: ' . $error);
-        }
-        
-        $decoded = json_decode($response, true);
-        
-        if ($http_code !== 200) {
-            $error_message = isset($decoded['error']['message']) ? $decoded['error']['message'] : 'HTTP ' . $http_code;
-            return new WP_Error('api_error', $error_message);
-        }
-        
-        return $decoded;
+        // No caching needed for direct APIs
+        return true;
     }
     
     /**
      * Get troubleshooting suggestions for image processing errors
      */
     public function get_image_troubleshooting_suggestions() {
-        $endpoint = $this->settings['litellm_endpoint'] ?? '';
-        $is_problematic = $this->is_problematic_litellm_setup($endpoint);
-        
         $suggestions = array(
             'format_issues' => array(
                 'title' => 'Image Format Compatibility',
-                'suggestions' => array()
+                'suggestions' => array(
+                    'Images are automatically formatted for your selected API provider',
+                    'Claude API uses base64 encoding for all images',
+                    'OpenAI API tries URLs first, falls back to base64 encoding'
+                )
             ),
             'model_compatibility' => array(
                 'title' => 'Model Configuration', 
                 'suggestions' => array(
-                    'Use vision-capable models: Claude 3 Sonnet, Claude 3 Opus, Claude 3 Haiku, GPT-4o, GPT-4o-mini',
-                    'Check your LiteLLM proxy model configuration',
-                    'Ensure API key has vision capabilities enabled'
+                    'Use vision-capable models: Claude 3.5 Sonnet, Claude 3 Opus, GPT-4o, GPT-4o-mini, GPT-4 Turbo',
+                    'Ensure your API key has proper permissions',
+                    'Check that the selected model supports image analysis'
                 )
             ),
-            'litellm_config' => array(
-                'title' => 'LiteLLM Proxy Settings',
+            'general_tips' => array(
+                'title' => 'General Tips',
                 'suggestions' => array(
-                    'Verify LiteLLM proxy is running and accessible',
-                    'Check proxy configuration supports vision models',
-                    'Test connection without images first',
-                    'Review LiteLLM logs for detailed error information'
+                    'Check that your image is in supported format (JPEG, PNG, GIF, WebP)',
+                    'Verify image size is under 10MB for best performance',
+                    'Ensure stable internet connection for API requests',
+                    'Try a different image if one specific image fails'
                 )
             )
         );
-        
-        // Add specific suggestions based on endpoint configuration
-        if ($is_problematic) {
-            $suggestions['format_issues']['suggestions'] = array(
-                '🔧 RECOMMENDED FIX: Set Image Format to "OpenAI Base64 Only (LiteLLM Fix)" in plugin settings',
-                'Your LiteLLM setup (' . parse_url($endpoint, PHP_URL_HOST) . ') appears to reject URL-based images',
-                'Base64-only mode bypasses URL issues common with tunneling services and custom domains',
-                'This is especially important for .nip.io domains, ngrok, localtunnel, and private networks'
-            );
-        } else {
-            $suggestions['format_issues']['suggestions'] = array(
-                'Try switching to GPT-4o or GPT-4o-mini for better LiteLLM compatibility',
-                'Ensure your LiteLLM proxy is configured for vision models',
-                'Check that your image is in supported format (JPEG, PNG, GIF, WebP)',
-                'Verify image size is under 10MB',
-                'If using custom LiteLLM setup, try "OpenAI Base64 Only" format'
-            );
-        }
         
         return $suggestions;
     }
@@ -963,106 +654,26 @@ class WP_Claude_Code_Claude_API {
      * Get specific configuration advice based on current setup
      */
     public function get_configuration_advice() {
-        $endpoint = $this->settings['litellm_endpoint'] ?? '';
-        $format_override = $this->settings['image_format_override'] ?? 'auto';
-        
         $advice = array();
         
-        if ($this->is_problematic_litellm_setup($endpoint)) {
-            if ($format_override === 'auto' || $format_override === 'openai') {
-                $advice[] = array(
-                    'type' => 'warning',
-                    'title' => 'Potential Image Processing Issue Detected',
-                    'message' => 'Your LiteLLM endpoint (' . parse_url($endpoint, PHP_URL_HOST) . ') may have issues with URL-based images. Consider setting Image Format to "OpenAI Base64 Only (LiteLLM Fix)" for better compatibility.'
-                );
-            } elseif ($format_override === 'openai_base64_only') {
-                $advice[] = array(
-                    'type' => 'success',
-                    'title' => 'Optimal Configuration Detected',
-                    'message' => 'Your configuration is optimized for your LiteLLM setup. The "OpenAI Base64 Only" format should work well with your endpoint.'
-                );
-            }
+        // Provide advice based on current API provider
+        if ($this->api_provider === 'claude_direct') {
+            $advice[] = array(
+                'type' => 'info',
+                'title' => 'Direct Claude API Configuration',
+                'message' => 'You are using the direct Claude API. Images are automatically processed using base64 encoding for optimal compatibility.'
+            );
+        } elseif ($this->api_provider === 'openai_direct') {
+            $advice[] = array(
+                'type' => 'info',
+                'title' => 'Direct OpenAI API Configuration',
+                'message' => 'You are using the direct OpenAI API. Images are processed using URLs when possible, with base64 fallback for maximum efficiency.'
+            );
         }
         
         return $advice;
     }
     
-    /**
-     * Detect optimal image format based on LiteLLM configuration
-     */
-    private function detect_optimal_image_format() {
-        $endpoint = $this->settings['litellm_endpoint'] ?? '';
-        
-        // Enhanced detection for custom LiteLLM configurations
-        if (!empty($endpoint)) {
-            // Check for custom/problematic LiteLLM configurations
-            if ($this->is_problematic_litellm_setup($endpoint)) {
-                error_log('WP Claude Code: Detected potentially problematic LiteLLM setup, using base64-only mode');
-                return 'openai_base64_only';
-            }
-        }
-        
-        // Use provider-specific format detection
-        switch ($this->api_provider) {
-            case 'claude_direct':
-                error_log('WP Claude Code: Using Claude format for direct Claude API');
-                return 'claude';
-            case 'openai_direct':
-                error_log('WP Claude Code: Using OpenAI format for direct OpenAI API');
-                return 'openai';
-            case 'litellm':
-            default:
-                // For LiteLLM, default to OpenAI format for better compatibility
-                error_log('WP Claude Code: Using OpenAI format for LiteLLM proxy compatibility');
-                return 'openai';
-        }
-    }
-    
-    /**
-     * Check if the LiteLLM setup might be problematic for image URLs
-     */
-    private function is_problematic_litellm_setup($endpoint) {
-        // Patterns that indicate potentially problematic setups
-        $problematic_patterns = array(
-            '.nip.io',      // Custom domain services often have issues
-            'tunnel',       // Various tunneling services
-            'ngrok',        // Development tunneling
-            'localtunnel',  // Local tunneling
-            'localhost',    // Local development
-            '127.0.0.1',    // Local IP
-            '192.168.',     // Private network ranges
-            '10.',          // Private network ranges  
-            '172.16.',      // Private network ranges
-        );
-        
-        foreach ($problematic_patterns as $pattern) {
-            if (strpos($endpoint, $pattern) !== false) {
-                error_log('WP Claude Code: Detected problematic pattern "' . $pattern . '" in endpoint: ' . $endpoint);
-                return true;
-            }
-        }
-        
-        return false;
-    }
-    
-    /**
-     * Determine if image URLs should be attempted
-     */
-    private function should_use_image_url() {
-        // Always try URLs for direct API providers
-        if ($this->api_provider !== 'litellm') {
-            return true;
-        }
-        
-        $endpoint = $this->settings['litellm_endpoint'] ?? '';
-        
-        // Don't use URLs for known problematic setups
-        if ($this->is_problematic_litellm_setup($endpoint)) {
-            return false;
-        }
-        
-        return true;
-    }
     
     /**
      * Check if model supports vision/image analysis
@@ -1070,8 +681,10 @@ class WP_Claude_Code_Claude_API {
     private function model_supports_vision($model) {
         $vision_models = array(
             // Claude models with vision
+            'claude-3-5-sonnet-20241022',
+            'claude-3-5-haiku-20241022',
+            'claude-3-opus-20240229',
             'claude-3-sonnet-20240229',
-            'claude-3-opus-20240229', 
             'claude-3-haiku-20240307',
             'claude-3-sonnet',
             'claude-3-opus',
@@ -1081,7 +694,9 @@ class WP_Claude_Code_Claude_API {
             'gpt-4o',
             'gpt-4o-2024-05-13',
             'gpt-4o-mini',
-            'gpt-4o-mini-2024-07-18'
+            'gpt-4o-mini-2024-07-18',
+            'gpt-4-turbo',
+            'gpt-4-turbo-2024-04-09'
         );
         
         return in_array($model, $vision_models);
@@ -1369,191 +984,6 @@ How can I help you with your WordPress development today?";
         ));
     }
     
-    private function make_api_request($endpoint, $data) {
-        $url = rtrim($endpoint, '/') . '/v1/chat/completions';
-        
-        $headers = array(
-            'Content-Type' => 'application/json'
-        );
-        
-        // Enhanced debugging and logging
-        error_log('WP Claude Code: API Key available: ' . (!empty($this->settings['api_key']) ? 'Yes' : 'No'));
-        error_log('WP Claude Code: Endpoint: ' . $url);
-        error_log('WP Claude Code: Model being used: ' . ($data['model'] ?? 'not set'));
-        error_log('WP Claude Code: Current model property: ' . $this->current_model);
-        error_log('WP Claude Code: Model supports vision: ' . ($this->model_supports_vision($this->current_model) ? 'Yes' : 'No'));
-        
-        // Debug the message structure for image handling
-        if (isset($data['messages'])) {
-            foreach ($data['messages'] as $index => $message) {
-                if (isset($message['content']) && is_array($message['content'])) {
-                    $content_types = array_map(function($part) {
-                        return $part['type'] ?? 'unknown';
-                    }, $message['content']);
-                    error_log('WP Claude Code: Message ' . $index . ' content types: ' . implode(', ', $content_types));
-                    
-                    // Log image format details with more specifics
-                    foreach ($message['content'] as $part_index => $part) {
-                        if (isset($part['type']) && ($part['type'] === 'image' || $part['type'] === 'image_url')) {
-                            if ($part['type'] === 'image') {
-                                $source_type = $part['source']['type'] ?? 'unknown';
-                                $media_type = $part['source']['media_type'] ?? 'unknown';
-                                error_log('WP Claude Code: Claude format - source_type: ' . $source_type . ', media_type: ' . $media_type);
-                                if ($source_type === 'url') {
-                                    error_log('WP Claude Code: Claude format using URL: ' . substr($part['source']['url'] ?? '', 0, 50) . '...');
-                                }
-                            } else if ($part['type'] === 'image_url') {
-                                $url = $part['image_url']['url'] ?? '';
-                                if (strpos($url, 'data:') === 0) {
-                                    error_log('WP Claude Code: OpenAI format using base64 data URL');
-                                } else {
-                                    error_log('WP Claude Code: OpenAI format using direct URL: ' . substr($url, 0, 50) . '...');
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Log the complete request structure (sanitized for debugging)
-        $debug_data = $data;
-        if (isset($debug_data['messages'])) {
-            foreach ($debug_data['messages'] as &$message) {
-                if (isset($message['content']) && is_array($message['content'])) {
-                    foreach ($message['content'] as &$part) {
-                        if (isset($part['source']['data'])) {
-                            $part['source']['data'] = '[BASE64_DATA_' . strlen($part['source']['data']) . '_CHARS]';
-                        }
-                        if (isset($part['image_url']['url']) && strpos($part['image_url']['url'], 'data:') === 0) {
-                            $part['image_url']['url'] = '[DATA_URL_' . strlen($part['image_url']['url']) . '_CHARS]';
-                        }
-                    }
-                }
-            }
-        }
-        error_log('WP Claude Code: Full request structure: ' . json_encode($debug_data, JSON_PRETTY_PRINT));
-        
-        if (!empty($this->settings['api_key'])) {
-            $headers['Authorization'] = 'Bearer ' . $this->settings['api_key'];
-            error_log('WP Claude Code: Added Authorization header');
-        } else {
-            error_log('WP Claude Code: No API key found in settings');
-            return new WP_Error('no_api_key', 'No API key configured');
-        }
-        
-        $json_data = json_encode($data);
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            error_log('WP Claude Code: JSON encoding error: ' . json_last_error_msg());
-            return new WP_Error('json_encode_error', 'Failed to encode request data as JSON');
-        }
-        
-        $args = array(
-            'headers' => $headers,
-            'body' => $json_data,
-            'timeout' => 60,
-            'method' => 'POST'
-        );
-        
-        $response = wp_remote_request($url, $args);
-        
-        if (is_wp_error($response)) {
-            error_log('WP Claude Code: WordPress HTTP error: ' . $response->get_error_message());
-            return $response;
-        }
-        
-        $status_code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        
-        if ($status_code !== 200) {
-            error_log('WP Claude Code: API error response: ' . $body);
-            
-            // Log the full request for debugging (excluding sensitive data)
-            $debug_data = $data;
-            if (isset($debug_data['messages'])) {
-                foreach ($debug_data['messages'] as &$message) {
-                    if (isset($message['content']) && is_array($message['content'])) {
-                        foreach ($message['content'] as &$part) {
-                            if (isset($part['source']['data'])) {
-                                $part['source']['data'] = '[BASE64_DATA_' . strlen($part['source']['data']) . '_CHARS]';
-                            }
-                            if (isset($part['image_url']['url']) && strpos($part['image_url']['url'], 'data:') === 0) {
-                                $part['image_url']['url'] = '[DATA_URL_' . strlen($part['image_url']['url']) . '_CHARS]';
-                            }
-                        }
-                    }
-                }
-            }
-            error_log('WP Claude Code: Request structure (sanitized): ' . json_encode($debug_data, JSON_PRETTY_PRINT));
-            
-            // Try to parse the error response for better debugging
-            $error_data = json_decode($body, true);
-            if ($error_data && isset($error_data['error']['message'])) {
-                $error_message = $error_data['error']['message'];
-                
-                // Enhanced detection for image format issues with specific LiteLLM advice
-                if (strpos($error_message, 'image_url') !== false || 
-                    strpos($error_message, 'Invalid user message') !== false ||
-                    strpos($error_message, 'image') !== false) {
-                    
-                    error_log('WP Claude Code: DETECTED IMAGE FORMAT ISSUE - Error: ' . $error_message);
-                    
-                    $endpoint = $this->settings['litellm_endpoint'] ?? '';
-                    if ($this->is_problematic_litellm_setup($endpoint)) {
-                        error_log('WP Claude Code: SOLUTION SUGGESTION - This LiteLLM setup appears problematic for image URLs. Try setting Image Format to "OpenAI Base64 Only (LiteLLM Fix)" in plugin settings.');
-                        $error_message .= ' | SUGGESTION: This appears to be a LiteLLM configuration issue with image URLs. Go to Claude Code Settings > Image Processing and set format to "OpenAI Base64 Only (LiteLLM Fix)" to resolve this issue.';
-                    } else {
-                        error_log('WP Claude Code: SOLUTION SUGGESTION - Try adjusting the Image Format setting in plugin settings.');
-                        $error_message .= ' | SUGGESTION: Try adjusting the Image Format setting in Claude Code Settings > Image Processing.';
-                    }
-                }
-                
-                return new WP_Error('api_error', "API request failed with status $status_code: $error_message");
-            }
-            
-            return new WP_Error('api_error', "API request failed with status $status_code: $body");
-        }
-        
-        $decoded = json_decode($body, true);
-        
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return new WP_Error('json_error', 'Invalid JSON response from API');
-        }
-        
-        return $decoded;
-    }
-    
-    private function process_response($response) {
-        if (!isset($response['choices'][0]['message'])) {
-            return new WP_Error('invalid_response', 'Invalid response format from API');
-        }
-        
-        $message = $response['choices'][0]['message'];
-        $content = $message['content'] ?? '';
-        $tools_used = array();
-        
-        // Process tool calls if present
-        if (isset($message['tool_calls'])) {
-            foreach ($message['tool_calls'] as $tool_call) {
-                $function_name = $tool_call['function']['name'];
-                $arguments = json_decode($tool_call['function']['arguments'], true);
-                
-                $tool_result = $this->execute_tool($function_name, $arguments);
-                $tools_used[] = $function_name;
-                
-                if (!is_wp_error($tool_result)) {
-                    $content .= "\n\n" . $tool_result;
-                } else {
-                    $content .= "\n\nTool execution error: " . $tool_result->get_error_message();
-                }
-            }
-        }
-        
-        return array(
-            'content' => $content,
-            'tools_used' => $tools_used
-        );
-    }
     
     private function execute_tool($function_name, $arguments) {
         error_log("WP Claude Code: Executing tool: $function_name with arguments: " . json_encode($arguments));
@@ -1822,8 +1252,9 @@ How can I help you with your WordPress development today?";
                
                "## Claude Code Plugin Status\n" .
                "- **WP-CLI Available:** " . (WP_Claude_Code_WP_CLI_Bridge::is_wp_cli_available() ? 'Yes' : 'No') . "\n" .
-               "- **LiteLLM Endpoint:** " . ($this->settings['litellm_endpoint'] ?? 'Not configured') . "\n" .
-               "- **API Key Configured:** " . (!empty($this->settings['api_key']) ? 'Yes' : 'No') . "\n" .
+               "- **API Provider:** " . ($this->settings['api_provider'] ?? 'Not configured') . "\n" .
+               "- **Claude API Key:** " . (!empty($this->settings['claude_api_key']) ? 'Yes' : 'No') . "\n" .
+               "- **OpenAI API Key:** " . (!empty($this->settings['openai_api_key']) ? 'Yes' : 'No') . "\n" .
                "- **Model:** " . ($this->settings['model'] ?? 'Not set') . "\n";
     }
     

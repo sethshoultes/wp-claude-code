@@ -71,12 +71,10 @@ class WP_Claude_Code {
         
         // Set default options - API key should be configured in settings
         add_option('wp_claude_code_settings', array(
-            'api_provider' => 'litellm', // litellm, claude_direct, openai_direct
-            'litellm_endpoint' => '',
-            'api_key' => '',
+            'api_provider' => 'openai_direct', // claude_direct, openai_direct
             'claude_api_key' => '',
             'openai_api_key' => '',
-            'model' => 'claude-3-sonnet-20240229',
+            'model' => 'gpt-4o',
             'max_tokens' => 4000,
             'enabled_tools' => array('file_read', 'file_edit', 'wp_cli', 'db_query', 'plugin_repository', 'content_management'),
             'use_memberpress_ai_config' => true, // Try to auto-detect from MemberPress AI

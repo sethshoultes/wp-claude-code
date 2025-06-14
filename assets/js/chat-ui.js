@@ -281,45 +281,43 @@ jQuery(document).ready(function($) {
     // Initialize the enhanced UI
     initUiEnhancements();
     
-    // Override the send message function to add typing animation
+    // Override the send message function to add enhanced UI features
     if (typeof window.sendMessage === 'function') {
         const originalSendMessage = window.sendMessage;
         window.sendMessage = function() {
-            const message = $('#chat-input').val().trim();
-            if (!message) return;
+            // Delegate to the main sendMessage function but use enhanced UI elements
+            const originalAddMessageToChat = window.addMessageToChat;
+            const originalShowTypingIndicator = window.showTypingIndicator;
+            const originalHideTypingIndicator = window.hideTypingIndicator;
             
-            // Add user message with enhanced UI
-            addMessageToChat('user', message);
-            $('#chat-input').val('');
-            
-            // Show improved typing indicator
-            showEnhancedTypingIndicator();
-            
-            // Call the original function but intercept its AJAX call
-            // This is a simplification and may need adjustment based on how the original function works
-            $.ajax({
-                url: claudeCode.ajaxUrl,
-                type: 'POST',
-                data: {
-                    action: 'claude_code_chat',
-                    message: message,
-                    conversation_id: window.conversationId || '',
-                    nonce: claudeCode.nonce
-                },
-                success: function(response) {
-                    hideTypingIndicator();
-                    if (response.success) {
-                        window.conversationId = response.data.conversation_id;
-                        addMessageToChat('assistant', response.data.response, response.data.tools_used);
-                    } else {
-                        addErrorMessage(response.data || 'An error occurred');
-                    }
-                },
-                error: function() {
-                    hideTypingIndicator();
-                    addErrorMessage('Network error occurred');
+            // Temporarily override UI functions with enhanced versions
+            window.addMessageToChat = function(type, content, toolsUsed = null, shouldScroll = true) {
+                const messagesContainer = $('#chat-messages');
+                let messageHtml;
+                
+                if (typeof window.createMessageHtml === 'function') {
+                    messageHtml = window.createMessageHtml(type, content, toolsUsed);
+                } else {
+                    // Fallback to basic message creation
+                    messageHtml = createMessageHtml(type, content, toolsUsed);
                 }
-            });
+                
+                messagesContainer.append(messageHtml);
+                if (shouldScroll !== false) {
+                    scrollToBottom();
+                }
+            };
+            
+            window.showTypingIndicator = showEnhancedTypingIndicator;
+            window.hideTypingIndicator = hideTypingIndicator;
+            
+            // Call the original sendMessage function
+            originalSendMessage();
+            
+            // Restore original functions
+            window.addMessageToChat = originalAddMessageToChat;
+            window.showTypingIndicator = originalShowTypingIndicator;
+            window.hideTypingIndicator = originalHideTypingIndicator;
         };
     }
     

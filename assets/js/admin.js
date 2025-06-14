@@ -48,7 +48,15 @@ jQuery(document).ready(function($) {
         const message = $('#chat-input').val().trim();
         if (!message) return;
         
-        addMessageToChat('user', message);
+        // Add attachment info to message if attachments exist
+        let messageWithAttachments = message;
+        if (currentAttachments.length > 0) {
+            messageWithAttachments += '\n\n[Attachments: ';
+            messageWithAttachments += currentAttachments.map(att => att.name).join(', ');
+            messageWithAttachments += ']';
+        }
+        
+        addMessageToChat('user', messageWithAttachments);
         $('#chat-input').val('');
         showTypingIndicator();
         
@@ -59,18 +67,39 @@ jQuery(document).ready(function($) {
                 action: 'claude_code_chat',
                 message: message,
                 conversation_id: conversationId,
+                attachments: currentAttachments.map(att => att.id),
+                model: currentModel, // Include current model
                 nonce: claudeCode.nonce
             },
             success: function(response) {
                 hideTypingIndicator();
                 if (response.success) {
                     conversationId = response.data.conversation_id;
+                    window.conversationId = conversationId;  // Update global reference
                     addMessageToChat('assistant', response.data.response, response.data.tools_used);
+                    
+                    // Clear attachments after sending
+                    currentAttachments = [];
+                    updateAttachmentsDisplay();
                     
                     // Refresh conversations list to show updated activity
                     loadConversations();
                 } else {
-                    addErrorMessage(response.data || 'An error occurred');
+                    let errorMessage = response.data || 'An error occurred';
+                    
+                    // Check for image-related errors and provide helpful feedback
+                    if (errorMessage.includes('image_url') || errorMessage.includes('Invalid user message')) {
+                        errorMessage = '🖼️ Image processing error: The image format may not be compatible with the current model. Try switching to a different vision model.';
+                        
+                        // Show notification with suggestion
+                        if (typeof showNotification === 'function') {
+                            showNotification('Try switching to GPT-4o or Claude 3 Sonnet for better image compatibility', 'warning');
+                        }
+                    } else if (errorMessage.includes('APIConnectionError')) {
+                        errorMessage = '🔌 Connection error: Unable to connect to the AI service. Please check your API configuration and key.';
+                    }
+                    
+                    addErrorMessage(errorMessage);
                 }
             },
             error: function() {
@@ -170,6 +199,7 @@ jQuery(document).ready(function($) {
                 </div>
             `);
             conversationId = '';
+            window.conversationId = conversationId;
         }
     }
     
@@ -275,6 +305,7 @@ jQuery(document).ready(function($) {
             success: function(response) {
                 if (response.success) {
                     conversationId = convId;
+                    window.conversationId = conversationId;
                     renderConversationMessages(response.data.messages);
                     $('.conversation-item').removeClass('active');
                     $(`[data-conversation-id="${convId}"]`).addClass('active');
@@ -300,6 +331,7 @@ jQuery(document).ready(function($) {
     
     function startNewConversation() {
         conversationId = '';
+        window.conversationId = conversationId;
         currentConversationTitle = '';
         $('#chat-messages').html(`
             <div class="system-message">
@@ -935,56 +967,7 @@ jQuery(document).ready(function($) {
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
     
-    // Update sendMessage function to include attachments
-    const originalSendMessage = sendMessage;
-    sendMessage = function() {
-        const message = $('#chat-input').val().trim();
-        if (!message) return;
-        
-        // Add attachment info to message if attachments exist
-        let messageWithAttachments = message;
-        if (currentAttachments.length > 0) {
-            messageWithAttachments += '\n\n[Attachments: ';
-            messageWithAttachments += currentAttachments.map(att => att.name).join(', ');
-            messageWithAttachments += ']';
-        }
-        
-        addMessageToChat('user', messageWithAttachments);
-        $('#chat-input').val('');
-        showTypingIndicator();
-        
-        $.ajax({
-            url: claudeCode.ajaxUrl,
-            type: 'POST',
-            data: {
-                action: 'claude_code_chat',
-                message: message,
-                conversation_id: conversationId,
-                attachments: currentAttachments.map(att => att.id),
-                nonce: claudeCode.nonce
-            },
-            success: function(response) {
-                hideTypingIndicator();
-                if (response.success) {
-                    conversationId = response.data.conversation_id;
-                    addMessageToChat('assistant', response.data.response, response.data.tools_used);
-                    
-                    // Clear attachments after sending
-                    currentAttachments = [];
-                    updateAttachmentsDisplay();
-                    
-                    // Refresh conversations list to show updated activity
-                    loadConversations();
-                } else {
-                    addErrorMessage(response.data || 'An error occurred');
-                }
-            },
-            error: function() {
-                hideTypingIndicator();
-                addErrorMessage('Network error occurred');
-            }
-        });
-    };
+    // Function override removed - functionality consolidated into main sendMessage function
     
     // Model Selector Functions
     function initializeModelSelector() {
@@ -1128,112 +1111,7 @@ jQuery(document).ready(function($) {
         return html;
     };
     
-    // Update sendMessage to include current model
-    const originalSendMessageImplementation = sendMessage;
-    sendMessage = function() {
-        const message = $('#chat-input').val().trim();
-        if (!message) return;
-        
-        // Add attachment info to message if attachments exist
-        let messageWithAttachments = message;
-        if (currentAttachments.length > 0) {
-            messageWithAttachments += '\n\n[Attachments: ';
-            messageWithAttachments += currentAttachments.map(att => att.name).join(', ');
-            messageWithAttachments += ']';
-        }
-        
-        addMessageToChat('user', messageWithAttachments);
-        $('#chat-input').val('');
-        showTypingIndicator();
-        
-        $.ajax({
-            url: claudeCode.ajaxUrl,
-            type: 'POST',
-            data: {
-                action: 'claude_code_chat',
-                message: message,
-                conversation_id: conversationId,
-                attachments: currentAttachments.map(att => att.id),
-                model: currentModel, // Include current model
-                nonce: claudeCode.nonce
-            },
-            success: function(response) {
-                hideTypingIndicator();
-                if (response.success) {
-                    conversationId = response.data.conversation_id;
-                    addMessageToChat('assistant', response.data.response, response.data.tools_used);
-                    
-                    // Clear attachments after sending
-                    currentAttachments = [];
-                    updateAttachmentsDisplay();
-                    
-                    // Refresh conversations list to show updated activity
-                    loadConversations();
-                } else {
-                    let errorMessage = response.data || 'An error occurred';
-                    
-                    // Check for image-related errors and provide helpful feedback
-                    if (errorMessage.includes('image_url') || errorMessage.includes('Invalid user message')) {
-                        errorMessage = '🖼️ Image processing error: The image format may not be compatible with the current model or LiteLLM configuration. Try switching to a different vision model or check your LiteLLM proxy settings.';
-                        
-                        // Show notification with suggestion
-                        showNotification('Try switching to GPT-4o or Claude 3 Sonnet for better image compatibility', 'warning');
-                        
-                        // Add debug button for troubleshooting
-                        setTimeout(() => {
-                            $('#chat-messages').append(`
-                                <div class="debug-helper" style="background: #f0f8ff; border: 1px solid #0073aa; border-radius: 4px; padding: 10px; margin: 10px 0;">
-                                    <strong>🔧 Image Processing Debug</strong><br>
-                                    <button id="debug-image-config" class="button button-small" style="margin-top: 5px;">Check Configuration</button>
-                                    <div id="debug-results" style="margin-top: 10px; font-size: 12px;"></div>
-                                </div>
-                            `);
-                            
-                            $('#debug-image-config').on('click', function() {
-                                $(this).prop('disabled', true).text('Checking...');
-                                
-                                $.ajax({
-                                    url: claudeCode.ajaxUrl,
-                                    type: 'POST',
-                                    data: {
-                                        action: 'claude_code_debug_image',
-                                        nonce: claudeCode.nonce
-                                    },
-                                    success: function(response) {
-                                        if (response.success) {
-                                            const info = response.data;
-                                            let html = '<strong>Configuration Status:</strong><br>';
-                                            html += `• Current Model: ${info.current_model}<br>`;
-                                            html += `• Vision Support: ${info.model_supports_vision ? '✅ Yes' : '❌ No'}<br>`;
-                                            html += `• Image Format: ${info.image_format_override}<br>`;
-                                            html += `• LiteLLM Endpoint: ${info.endpoint_suggests_litellm ? '✅ Detected' : '❓ Direct API'}<br>`;
-                                            html += `• API Key: ${info.api_key_configured ? '✅ Set' : '❌ Missing'}<br>`;
-                                            
-                                            if (!info.model_supports_vision) {
-                                                html += '<br><strong style="color: #dc3232;">⚠️ Issue Found:</strong> Current model doesn\'t support images!<br>';
-                                                html += 'Switch to: Claude 3 Sonnet, GPT-4o, or GPT-4o-mini';
-                                            }
-                                            
-                                            $('#debug-results').html(html);
-                                        }
-                                        $('#debug-image-config').prop('disabled', false).text('Check Configuration');
-                                    }
-                                });
-                            });
-                        }, 1000);
-                    } else if (errorMessage.includes('APIConnectionError')) {
-                        errorMessage = '🔌 Connection error: Unable to connect to the AI service. Please check your LiteLLM proxy configuration and API key.';
-                    }
-                    
-                    addErrorMessage(errorMessage);
-                }
-            },
-            error: function() {
-                hideTypingIndicator();
-                addErrorMessage('Network error occurred');
-            }
-        });
-    };
+    // Function override removed - functionality consolidated into main sendMessage function
     
     // Helper Functions
     function getBestVisionModel() {
@@ -1489,6 +1367,14 @@ jQuery(document).ready(function($) {
             }
         }
     }
+    
+    // Expose key functions to global scope for chat UI enhancement
+    window.sendMessage = sendMessage;
+    window.addMessageToChat = addMessageToChat;
+    window.createMessageHtml = createMessageHtml;
+    window.showTypingIndicator = showTypingIndicator;
+    window.hideTypingIndicator = hideTypingIndicator;
+    window.conversationId = conversationId;
     
     // Initialize the interface
     init();
