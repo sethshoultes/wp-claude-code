@@ -346,10 +346,11 @@ class WP_Claude_Code_Admin {
                         </th>
                         <td>
                             <select name="primary_provider" id="primary_provider">
-                                <option value="openai_direct" <?php selected($settings['api_provider'] ?? 'openai_direct', 'openai_direct'); ?>>OpenAI (GPT Models)</option>
-                                <option value="claude_direct" <?php selected($settings['api_provider'] ?? '', 'claude_direct'); ?>>Claude (Anthropic Models)</option>
+                                <option value="litellm_proxy" <?php selected($settings['api_provider'] ?? 'litellm_proxy', 'litellm_proxy'); ?>>LiteLLM Proxy (Recommended - No API key required)</option>
+                                <option value="openai_direct" <?php selected($settings['api_provider'] ?? '', 'openai_direct'); ?>>OpenAI Direct (Requires your API key)</option>
+                                <option value="claude_direct" <?php selected($settings['api_provider'] ?? '', 'claude_direct'); ?>>Claude Direct (Requires your API key)</option>
                             </select>
-                            <p class="description">Choose your primary AI provider. This determines which API is used by default.</p>
+                            <p class="description">Choose your AI provider. LiteLLM Proxy is recommended as it requires no setup and includes both Claude and OpenAI models.</p>
                         </td>
                     </tr>
                     
@@ -788,11 +789,11 @@ class WP_Claude_Code_Admin {
      * Save general settings
      */
     private function save_general_settings($current_settings) {
-        $primary_provider = sanitize_text_field($_POST['primary_provider'] ?? 'openai_direct');
+        $primary_provider = sanitize_text_field($_POST['primary_provider'] ?? 'litellm_proxy');
         $conversation_retention = absint($_POST['conversation_retention'] ?? 30);
         $debug_mode = !empty($_POST['debug_mode']);
         
-        // Validate primary provider has been configured
+        // Validate primary provider has been configured (skip validation for LiteLLM proxy)
         if ($primary_provider === 'openai_direct' && empty($current_settings['openai_api_key'])) {
             echo '<div class="notice notice-error"><p>Please configure OpenAI settings first before setting it as primary provider.</p></div>';
             return;
@@ -802,6 +803,8 @@ class WP_Claude_Code_Admin {
             echo '<div class="notice notice-error"><p>Please configure Claude settings first before setting it as primary provider.</p></div>';
             return;
         }
+        
+        // LiteLLM proxy requires no additional configuration - ready to use out of the box
         
         // Update general settings
         $current_settings['api_provider'] = $primary_provider;
@@ -953,23 +956,28 @@ class WP_Claude_Code_Admin {
         
         // Get current settings to determine which provider to use for this model
         $settings = get_option('wp_claude_code_settings', array());
-        $primary_provider = $settings['api_provider'] ?? 'openai_direct';
+        $primary_provider = $settings['api_provider'] ?? 'litellm_proxy';
         
         // Determine the appropriate provider for the selected model
         $model_provider = $primary_provider; // Default to primary provider
-        if (strpos($model, 'claude') !== false) {
-            $model_provider = 'claude_direct';
-        } elseif (strpos($model, 'gpt') !== false) {
-            $model_provider = 'openai_direct';
-        }
         
-        // Validate that we have the necessary API key for the model's provider
-        $api_key_key = ($model_provider === 'claude_direct') ? 'claude_api_key' : 'openai_api_key';
-        if (empty($settings[$api_key_key])) {
-            $provider_name = ($model_provider === 'claude_direct') ? 'Claude' : 'OpenAI';
-            wp_send_json_error("$provider_name API key is required to use this model. Please configure it in the $provider_name settings tab.");
-            return;
+        // For direct API providers, switch provider based on model type
+        if ($primary_provider !== 'litellm_proxy') {
+            if (strpos($model, 'claude') !== false) {
+                $model_provider = 'claude_direct';
+            } elseif (strpos($model, 'gpt') !== false) {
+                $model_provider = 'openai_direct';
+            }
+            
+            // Validate that we have the necessary API key for direct providers
+            $api_key_key = ($model_provider === 'claude_direct') ? 'claude_api_key' : 'openai_api_key';
+            if (empty($settings[$api_key_key])) {
+                $provider_name = ($model_provider === 'claude_direct') ? 'Claude' : 'OpenAI';
+                wp_send_json_error("$provider_name API key is required to use this model. Please configure it in the $provider_name settings tab.");
+                return;
+            }
         }
+        // LiteLLM proxy handles all models without requiring API key validation
         
         // Save user's model preference
         update_user_meta($user_id, 'claude_code_preferred_model', $model);
@@ -1026,7 +1034,7 @@ class WP_Claude_Code_Admin {
         $debug_info = array(
             'current_model' => $current_model,
             'model_supports_vision' => $supports_vision,
-            'api_provider' => $settings['api_provider'] ?? 'openai_direct',
+            'api_provider' => $settings['api_provider'] ?? 'litellm_proxy',
             'claude_api_key_configured' => !empty($settings['claude_api_key']),
             'openai_api_key_configured' => !empty($settings['openai_api_key']),
             'vision_models' => $vision_models
@@ -1047,7 +1055,7 @@ class WP_Claude_Code_Admin {
         }
         
         $settings = get_option('wp_claude_code_settings', array());
-        $provider = $settings['api_provider'] ?? 'openai_direct';
+        $provider = $settings['api_provider'] ?? 'litellm_proxy';
         
         $claude_api = new WP_Claude_Code_Claude_API();
         

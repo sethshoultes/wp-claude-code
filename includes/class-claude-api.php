@@ -29,7 +29,7 @@ class WP_Claude_Code_Claude_API {
         } elseif (strpos($model, 'gpt') !== false) {
             return 'openai_direct';
         }
-        return 'openai_direct'; // Default to OpenAI for unknown models
+        return 'litellm_proxy'; // Default to LiteLLM proxy for unknown models
     }
     
     /**
@@ -67,6 +67,8 @@ class WP_Claude_Code_Claude_API {
     public function send_message($message, $conversation_id = '', $attachments = array()) {
         // Route to appropriate API provider
         switch ($this->api_provider) {
+            case 'litellm_proxy':
+                return $this->send_message_litellm_proxy($message, $conversation_id, $attachments);
             case 'claude_direct':
                 return $this->send_message_claude_direct($message, $conversation_id, $attachments);
             case 'openai_direct':
@@ -175,6 +177,133 @@ class WP_Claude_Code_Claude_API {
         }
         
         return $this->process_openai_response($response);
+    }
+    
+    /**
+     * Send message via LiteLLM proxy
+     */
+    private function send_message_litellm_proxy($message, $conversation_id = '', $attachments = array()) {
+        // Use the same proxy key as MemberPress
+        $proxy_key = '3d82afe47512fcb1faba41cc1c9c796d3dbe8624b0a5c62fa68e6d38f0bf6d72';
+        
+        $conversation_history = $this->get_conversation_history($conversation_id);
+        $system_prompt = $this->get_system_prompt();
+        $tools = $this->get_available_tools_litellm();
+        
+        $messages = array();
+        
+        // Add system message (LiteLLM proxy supports OpenAI format)
+        $messages[] = array(
+            'role' => 'system',
+            'content' => $system_prompt
+        );
+        
+        // Add conversation history
+        foreach ($conversation_history as $msg) {
+            $messages[] = array(
+                'role' => $msg->message_type === 'user' ? 'user' : 'assistant',
+                'content' => $msg->content
+            );
+        }
+        
+        // Prepare current message with attachments
+        $current_message = $this->prepare_message_litellm_format($message, $attachments);
+        $messages[] = $current_message;
+        
+        $request_data = array(
+            'model' => $this->current_model,
+            'messages' => $messages,
+            'max_tokens' => intval($this->settings['max_tokens'] ?? 4000),
+            'tools' => $tools
+        );
+        
+        error_log('WP Claude Code: LiteLLM Proxy Request - Model: ' . $this->current_model);
+        error_log('WP Claude Code: LiteLLM Proxy Request - Has attachments: ' . (!empty($attachments) ? 'Yes' : 'No'));
+        
+        $response = $this->make_litellm_proxy_request($request_data, $proxy_key);
+        
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        
+        return $this->process_litellm_proxy_response($response);
+    }
+    
+    /**
+     * Prepare message with attachments for LiteLLM proxy format
+     */
+    private function prepare_message_litellm_format($message, $attachment_ids) {
+        if (empty($attachment_ids)) {
+            return array(
+                'role' => 'user',
+                'content' => $message
+            );
+        }
+        
+        $content_parts = array();
+        
+        // Add text message
+        $content_parts[] = array(
+            'type' => 'text',
+            'text' => $message
+        );
+        
+        // Process attachments for LiteLLM proxy (uses OpenAI format)
+        foreach ($attachment_ids as $attachment_id) {
+            $attachment_data = WP_Claude_Code_File_Attachment::execute_attachment_tool('read_attachment', array('attachment_id' => $attachment_id));
+            
+            if (is_wp_error($attachment_data) || !$attachment_data['success']) {
+                continue;
+            }
+            
+            if ($attachment_data['type'] === 'text') {
+                $content_parts[] = array(
+                    'type' => 'text',
+                    'text' => "\n\n--- File: {$attachment_data['filename']} ---\n" . $attachment_data['content'] . "\n--- End of file ---\n"
+                );
+            } elseif ($attachment_data['type'] === 'image') {
+                // LiteLLM proxy uses OpenAI format for images
+                $content_parts[] = array(
+                    'type' => 'image_url',
+                    'image_url' => array(
+                        'url' => "data:{$attachment_data['media_type']};base64,{$attachment_data['base64_data']}"
+                    )
+                );
+            }
+        }
+        
+        return array(
+            'role' => 'user',
+            'content' => $content_parts
+        );
+    }
+    
+    /**
+     * Make LiteLLM proxy API request
+     */
+    private function make_litellm_proxy_request($data, $api_key) {
+        $url = 'https://64.23.251.16.nip.io/chat/completions';
+        
+        $headers = array(
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $api_key
+        );
+        
+        return $this->make_http_request($url, $data, $headers);
+    }
+    
+    /**
+     * Process LiteLLM proxy response (uses OpenAI format)
+     */
+    private function process_litellm_proxy_response($response) {
+        return $this->process_openai_response($response);
+    }
+    
+    /**
+     * Get LiteLLM proxy tools format (uses OpenAI format)
+     */
+    private function get_available_tools_litellm() {
+        return $this->get_available_tools_openai();
     }
     
     /**
