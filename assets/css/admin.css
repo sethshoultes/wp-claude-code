@@ -102,7 +102,6 @@
     margin-top: 5px;
     display: block;
 }
-}
 
 .chat-messages {
     height: 500px;
@@ -852,4 +851,827 @@
 
 .message.assistant .model-indicator {
     background: #46b450;
+}
+
+/* ===== TABBED SETTINGS INTERFACE ===== */
+
+/* Tab Navigation */
+.nav-tab-wrapper {
+    border-bottom: 1px solid #ccd0d4;
+    margin: 20px 0 0 0;
+    padding: 0;
+}
+
+.nav-tab {
+    border: 1px solid #ccd0d4;
+    border-bottom: none;
+    color: #0073aa;
+    display: inline-block;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    margin: 0 5px -1px 0;
+    padding: 10px 15px;
+    text-decoration: none;
+    background: #f1f1f1;
+    transition: all 0.2s ease;
+}
+
+.nav-tab:hover {
+    background: #fff;
+    color: #0073aa;
+}
+
+.nav-tab.nav-tab-active {
+    background: #fff;
+    border-bottom: 1px solid #fff;
+    color: #000;
+    position: relative;
+    z-index: 1;
+}
+
+/* Tab Content */
+.tab-content {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    border-top: none;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.tab-panel {
+    display: block;
+}
+
+/* Provider Header */
+.provider-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 30px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #f0f0f1;
+}
+
+.provider-info h2 {
+    margin: 0 0 10px 0;
+    font-size: 24px;
+    color: #23282d;
+}
+
+.provider-info .description {
+    margin: 0;
+    color: #666;
+    font-size: 14px;
+}
+
+.provider-status {
+    text-align: right;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #dc3232;
+    transition: background-color 0.3s ease;
+}
+
+.status-dot.connected {
+    background: #00a32a;
+}
+
+.status-text {
+    color: #666;
+}
+
+/* API Key Input */
+.api-key-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 600px;
+}
+
+.api-key-input {
+    flex: 1;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+}
+
+.toggle-visibility {
+    padding: 6px 10px;
+    min-height: auto;
+    line-height: 1;
+}
+
+.toggle-visibility .dashicons {
+    font-size: 16px;
+    line-height: 1;
+}
+
+/* API Key Validation */
+.api-key-validation {
+    margin-top: 10px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.api-key-validation.valid {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.api-key-validation.invalid {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+.api-key-validation.checking {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    color: #856404;
+}
+
+/* Model Selector Enhanced */
+.model-selector {
+    min-width: 280px;
+}
+
+.model-recommendation {
+    margin-top: 10px;
+    padding: 10px;
+    background: #e1f5fe;
+    border: 1px solid #81d4fa;
+    border-radius: 4px;
+    font-size: 13px;
+    display: none;
+}
+
+.model-recommendation.show {
+    display: block;
+}
+
+.model-recommendation.warning {
+    background: #fff3cd;
+    border-color: #ffeaa7;
+    color: #856404;
+}
+
+.model-recommendation.error {
+    background: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+}
+
+/* Temperature Slider */
+.temperature-slider {
+    width: 200px;
+    margin-right: 10px;
+}
+
+.temperature-value {
+    font-weight: 600;
+    color: #0073aa;
+    padding: 2px 8px;
+    background: #f0f8ff;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+/* Provider Actions */
+.provider-actions {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #f0f0f1;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.test-connection {
+    position: relative;
+}
+
+.test-connection.testing {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.test-connection.testing::after {
+    content: "⚡";
+    animation: spin 1s linear infinite;
+    margin-left: 5px;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Connection Results */
+.connection-result {
+    margin-top: 15px;
+    padding: 12px;
+    border-radius: 4px;
+    display: none;
+    font-size: 13px;
+}
+
+.connection-result.show {
+    display: block;
+}
+
+.connection-result.success {
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.connection-result.error {
+    background: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+.connection-result.testing {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    color: #856404;
+}
+
+/* Enhanced Tool Checkboxes */
+.tool-checkbox {
+    display: block;
+    padding: 12px;
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.tool-checkbox:hover {
+    background: #e9ecef;
+    border-color: #0073aa;
+}
+
+.tool-checkbox input[type="checkbox"] {
+    margin-right: 10px;
+    transform: scale(1.1);
+}
+
+.tool-checkbox strong {
+    display: block;
+    color: #23282d;
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.tool-checkbox .description {
+    font-size: 12px;
+    color: #666;
+    margin: 0;
+    line-height: 1.4;
+}
+
+/* Auto-detect button */
+.detect-config {
+    font-size: 12px;
+    color: #0073aa;
+    text-decoration: none;
+    border: none;
+    background: none;
+    cursor: pointer;
+    padding: 0;
+}
+
+.detect-config:hover {
+    color: #005a87;
+    text-decoration: underline;
+}
+
+.detect-config.detecting {
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.detect-config.detecting::after {
+    content: " 🔄";
+    animation: spin 1s linear infinite;
+}
+
+/* Form enhancements */
+.form-table th {
+    font-weight: 600;
+    color: #23282d;
+}
+
+.form-table td {
+    vertical-align: top;
+    padding-top: 15px;
+}
+
+.form-table .description {
+    margin-top: 5px;
+    font-size: 13px;
+    color: #666;
+    line-height: 1.4;
+}
+
+/* Button enhancements */
+.button-small {
+    padding: 4px 8px;
+    font-size: 12px;
+    min-height: auto;
+    line-height: 1.2;
+}
+
+/* Loading states */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #0073aa;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-left: 8px;
+}
+
+/* Responsive design for tabs */
+@media (max-width: 782px) {
+    .nav-tab {
+        font-size: 12px;
+        padding: 8px 12px;
+    }
+    
+    .provider-header {
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .provider-status {
+        text-align: left;
+    }
+    
+    .api-key-input-wrapper {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+    
+    .provider-actions {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+    
+    .temperature-slider {
+        width: 100%;
+    }
+}
+
+/* Success/Error animations */
+@keyframes slideInFromTop {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.connection-result.show {
+    animation: slideInFromTop 0.3s ease-out;
+}
+
+.api-key-validation {
+    animation: slideInFromTop 0.3s ease-out;
+}
+
+/* Focus states */
+.api-key-input:focus,
+.model-selector:focus,
+.temperature-slider:focus {
+    border-color: #0073aa;
+    box-shadow: 0 0 0 1px #0073aa;
+    outline: none;
+}
+
+/* Provider-specific styling */
+.tab-panel[id="openai-tab"] .provider-info h2 {
+    color: #10a37f;
+}
+
+.tab-panel[id="claude-tab"] .provider-info h2 {
+    color: #d97757;
+}
+
+.tab-panel[id="general-tab"] h2 {
+    color: #0073aa;
+}
+
+/* Enhanced Model Selector Styles */
+.model-selector select {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.model-selector select optgroup {
+    font-weight: bold;
+    font-style: normal;
+    background-color: #f8f9fa;
+    color: #495057;
+}
+
+.model-selector select option {
+    padding: 5px 8px;
+    font-weight: normal;
+}
+
+.model-selector select option:disabled {
+    color: #6c757d;
+    font-style: italic;
+}
+
+/* Model indicator in chat messages */
+.message.assistant {
+    position: relative;
+}
+
+.model-indicator {
+    position: absolute;
+    top: -8px;
+    right: 10px;
+    background: #0073aa;
+    color: white;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: 500;
+    z-index: 1;
+}
+
+/* Model change system messages */
+.system-message.model-change {
+    background: #e8f4fd;
+    border-left: 4px solid #0073aa;
+    padding: 12px 16px;
+    margin: 15px 0;
+    border-radius: 0 4px 4px 0;
+}
+
+.system-message.model-change p {
+    margin: 0;
+    color: #0073aa;
+}
+
+.system-message.model-change small {
+    color: #666;
+}
+
+/* Model info in status area */
+#model-info {
+    font-size: 11px;
+    color: #666;
+    margin-top: 4px;
+}
+
+#current-model-name {
+    font-weight: 500;
+    color: #0073aa;
+}
+
+/* Refresh models button animation */
+#refresh-models.loading {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* Tool Result Formatting */
+.tool-result {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    margin: 12px 0;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.tool-result-header {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+    padding: 10px 14px;
+    font-weight: 600;
+    font-size: 13px;
+    border-bottom: 1px solid #1e7e34;
+}
+
+.tool-result-content {
+    padding: 16px;
+    line-height: 1.6;
+}
+
+.tool-result-content pre {
+    margin: 0;
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #212529;
+}
+
+/* Tool Result Headers */
+.tool-main-header {
+    color: #0073aa;
+    font-size: 18px;
+    font-weight: 600;
+    margin: 16px 0 12px 0;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #0073aa;
+}
+
+.tool-section-header {
+    color: #23282d;
+    font-size: 16px;
+    font-weight: 600;
+    margin: 14px 0 10px 0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #ddd;
+}
+
+.tool-subsection-header {
+    color: #666;
+    font-size: 14px;
+    font-weight: 600;
+    margin: 12px 0 8px 0;
+    padding-bottom: 2px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+/* Enhanced Tool Result Info Rows */
+.tool-result .info-row {
+    display: flex;
+    margin: 6px 0;
+    padding: 6px 0;
+    border-bottom: 1px solid #f0f0f0;
+    align-items: flex-start;
+}
+
+.tool-result .info-row:last-child {
+    border-bottom: none;
+}
+
+.tool-result .info-key {
+    font-weight: 600;
+    color: #0073aa;
+    min-width: 160px;
+    flex-shrink: 0;
+    padding-right: 8px;
+}
+
+.tool-result .info-value {
+    color: #23282d;
+    flex: 1;
+    word-break: break-word;
+}
+
+/* Tool Result Bullet Points */
+.tool-result .bullet-point {
+    margin: 4px 0;
+    padding-left: 8px;
+    color: #23282d;
+    position: relative;
+}
+
+.tool-result .bullet-point::before {
+    content: '•';
+    color: #0073aa;
+    font-weight: bold;
+    position: absolute;
+    left: 0;
+}
+
+/* Structured Output Formatting */
+.structured-output {
+    background: #ffffff;
+    border: 1px solid #0073aa;
+    border-radius: 6px;
+    margin: 15px 0;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.structured-header {
+    background: linear-gradient(135deg, #0073aa 0%, #005a87 100%);
+    color: white;
+    padding: 12px 16px;
+    font-weight: 600;
+    font-size: 16px;
+    border-bottom: 1px solid #005a87;
+}
+
+.structured-content {
+    padding: 16px;
+    line-height: 1.6;
+}
+
+.info-row {
+    display: flex;
+    margin: 8px 0;
+    padding: 4px 0;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.info-row:last-child {
+    border-bottom: none;
+}
+
+.info-key {
+    font-weight: 600;
+    color: #0073aa;
+    min-width: 140px;
+    flex-shrink: 0;
+}
+
+.info-value {
+    color: #23282d;
+    flex: 1;
+    margin-left: 8px;
+}
+
+/* Enhanced Code Block Formatting */
+.code-block {
+    background: #f6f8fa;
+    border: 1px solid #d0d7de;
+    border-radius: 6px;
+    margin: 12px 0;
+    overflow: hidden;
+}
+
+.code-block-header {
+    background: #f6f8fa;
+    border-bottom: 1px solid #d0d7de;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #656d76;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.code-block pre {
+    margin: 0;
+    padding: 16px;
+    background: #ffffff;
+    border: none;
+    font-size: 13px;
+    line-height: 1.45;
+    overflow-x: auto;
+}
+
+.code-block code {
+    background: none;
+    padding: 0;
+    color: #24292f;
+}
+
+/* Inline Code Styling */
+.inline-code {
+    background: #f6f8fa;
+    color: #d73a49;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    font-family: 'SFMono-Regular', 'Monaco', 'Inconsolata', 'Liberation Mono', 'Courier New', monospace;
+}
+
+/* Bullet Points */
+.bullet-point {
+    margin: 6px 0;
+    padding-left: 4px;
+    color: #23282d;
+}
+
+.bullet-point::before {
+    content: '';
+    color: #0073aa;
+    margin-right: 4px;
+}
+
+/* Tool Used Badge Enhancement */
+.tools-used {
+    background: #e8f4f8;
+    border: 1px solid #b8e1ed;
+    border-radius: 4px;
+    padding: 6px 10px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: #0073aa;
+    font-weight: 500;
+}
+
+.tools-used::before {
+    content: "🔧 ";
+    margin-right: 4px;
+}
+
+/* Message Container Enhancements */
+.message.assistant .message-content {
+    line-height: 1.6;
+}
+
+.message.assistant .message-content h1,
+.message.assistant .message-content h2,
+.message.assistant .message-content h3 {
+    margin-top: 20px;
+    margin-bottom: 10px;
+    color: #0073aa;
+}
+
+.message.assistant .message-content h1 {
+    font-size: 1.4em;
+    border-bottom: 2px solid #0073aa;
+    padding-bottom: 5px;
+}
+
+.message.assistant .message-content h2 {
+    font-size: 1.2em;
+}
+
+.message.assistant .message-content h3 {
+    font-size: 1.1em;
+}
+
+/* Additional Tool Result Formatting */
+.status-icon {
+    font-size: 1.1em;
+    margin-right: 4px;
+    display: inline-block;
+}
+
+.tool-separator {
+    border: none;
+    border-top: 1px solid #e1e3e6;
+    margin: 16px 0;
+    background: none;
+}
+
+/* Enhanced spacing for tool results */
+.tool-result .bullet-point {
+    margin: 6px 0 6px 12px;
+    line-height: 1.5;
+}
+
+.tool-result .info-row .info-value {
+    line-height: 1.5;
+}
+
+/* Better contrast for tool result content */
+.tool-result-content {
+    background: #ffffff;
+    font-size: 13px;
+}
+
+.tool-result-content .inline-code {
+    background: #f1f3f4;
+    color: #c33;
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-size: 0.9em;
+}
+
+/* Improved structured output spacing */
+.structured-output .info-row {
+    margin: 6px 0;
+    padding: 3px 0;
+}
+
+.structured-output .bullet-point {
+    margin: 4px 0 4px 12px;
 }

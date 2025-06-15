@@ -118,7 +118,7 @@ class WP_Claude_Code_Content_Manager {
                 'type' => 'function',
                 'function' => array(
                     'name' => 'get_posts',
-                    'description' => 'Get a list of WordPress posts or pages',
+                    'description' => 'Get a formatted list of WordPress posts, pages, or custom post types with details like title, status, dates, categories, and URLs',
                     'parameters' => array(
                         'type' => 'object',
                         'properties' => array(
@@ -375,29 +375,185 @@ class WP_Claude_Code_Content_Manager {
         }
         
         $posts = get_posts($query_args);
-        $results = array();
         
-        foreach ($posts as $post) {
-            $results[] = array(
-                'ID' => $post->ID,
-                'title' => $post->post_title,
-                'status' => $post->post_status,
-                'date' => $post->post_date,
-                'modified' => $post->post_modified,
-                'excerpt' => wp_strip_all_tags($post->post_excerpt ?: wp_trim_words($post->post_content, 30)),
-                'post_type' => $post->post_type,
-                'url' => get_permalink($post->ID),
-                'edit_url' => get_edit_post_link($post->ID)
+        // Check if this is being called from a tool (formatted output) or AJAX (JSON)
+        $from_tool = defined('WP_CLAUDE_CODE_TOOL_EXECUTION') && WP_CLAUDE_CODE_TOOL_EXECUTION;
+        
+        if ($from_tool) {
+            // Return formatted string for tool use
+            return $this->format_posts_output($posts, $args);
+        } else {
+            // Return JSON data for AJAX
+            $results = array();
+            
+            foreach ($posts as $post) {
+                $results[] = array(
+                    'ID' => $post->ID,
+                    'title' => $post->post_title,
+                    'status' => $post->post_status,
+                    'date' => $post->post_date,
+                    'modified' => $post->post_modified,
+                    'excerpt' => wp_strip_all_tags($post->post_excerpt ?: wp_trim_words($post->post_content, 30)),
+                    'post_type' => $post->post_type,
+                    'url' => get_permalink($post->ID),
+                    'edit_url' => get_edit_post_link($post->ID)
+                );
+            }
+            
+            return array(
+                'success' => true,
+                'posts' => $results,
+                'total_found' => count($results),
+                'query' => $args
             );
         }
-        
-        return array(
-            'success' => true,
-            'posts' => $results,
-            'total_found' => count($results),
-            'query' => $args
-        );
     }
+    
+    /**
+     * Format posts output for display in chat
+     */
+    private function format_posts_output($posts, $args) {
+        if (empty($posts)) {
+            return "# No " . ucfirst($args['post_type']) . "s Found\n\nNo " . $args['post_type'] . "s match your criteria.";
+        }
+        
+        $post_type_label = ucfirst($args['post_type']) . 's';
+        $output = "# WordPress $post_type_label\n\n";
+        $output .= "**Total Found:** " . count($posts) . " " . strtolower($post_type_label) . "\n";
+        
+        if (!empty($args['search'])) {
+            $output .= "**Search Term:** " . esc_html($args['search']) . "\n";
+        }
+        
+        if ($args['status'] !== 'any') {
+            $output .= "**Status Filter:** " . ucfirst($args['status']) . "\n";
+        }
+        
+        $output .= "\n";
+        
+        foreach ($posts as $post) {
+            $status_icon = $this->get_status_icon($post->post_status);
+            $output .= "## $status_icon " . esc_html($post->post_title) . "\n";
+            $output .= "- **ID:** " . $post->ID . "\n";
+            $output .= "- **Status:** " . ucfirst($post->post_status) . "\n";
+            $output .= "- **Type:** " . $post->post_type . "\n";
+            $output .= "- **Date:** " . $post->post_date . "\n";
+            $output .= "- **Modified:** " . $post->post_modified . "\n";
+            
+            // Add excerpt
+            $excerpt = wp_strip_all_tags($post->post_excerpt ?: wp_trim_words($post->post_content, 30));
+            if (!empty($excerpt)) {
+                $output .= "- **Excerpt:** " . esc_html($excerpt) . "\n";
+            }
+            
+            // Add categories and tags for posts
+            if ($post->post_type === 'post') {
+                $categories = get_the_category($post->ID);
+                if (!empty($categories)) {
+                    $cat_names = array_map(function($cat) { return $cat->name; }, $categories);
+                    $output .= "- **Categories:** " . implode(', ', $cat_names) . "\n";
+                }
+                
+                $tags = get_the_tags($post->ID);
+                if (!empty($tags)) {
+                    $tag_names = array_map(function($tag) { return $tag->name; }, $tags);
+                    $output .= "- **Tags:** " . implode(', ', $tag_names) . "\n";
+                }
+            }
+            
+            $output .= "- **View URL:** " . get_permalink($post->ID) . "\n";
+            $output .= "- **Edit URL:** " . get_edit_post_link($post->ID) . "\n";
+            $output .= "\n";
+        }
+        
+        // Add summary
+        $total_count = wp_count_posts($args['post_type']);
+        if (is_object($total_count)) {
+            $output .= "---\n\n";
+            $output .= "## Summary Statistics\n";
+            foreach (get_object_vars($total_count) as $status => $count) {
+                if ($count > 0) {
+                    $output .= "- **" . ucfirst($status) . ":** $count\n";
+                }
+            }
+        }
+        
+        return $output;
+    }
+    
+    /**
+     * Format single post output for display in chat
+     */
+    private function format_single_post_output($post, $categories = array(), $tags = array()) {
+        $status_icon = $this->get_status_icon($post->post_status);
+        $author = get_the_author_meta('display_name', $post->post_author);
+        
+        $output = "# " . $status_icon . " " . esc_html($post->post_title) . "\n\n";
+        $output .= "## Post Details\n";
+        $output .= "- **ID:** " . $post->ID . "\n";
+        $output .= "- **Status:** " . ucfirst($post->post_status) . "\n";
+        $output .= "- **Type:** " . $post->post_type . "\n";
+        $output .= "- **Author:** " . $author . "\n";
+        $output .= "- **Created:** " . $post->post_date . "\n";
+        $output .= "- **Modified:** " . $post->post_modified . "\n";
+        
+        if (!empty($categories)) {
+            $output .= "- **Categories:** " . implode(', ', $categories) . "\n";
+        }
+        
+        if (!empty($tags)) {
+            $output .= "- **Tags:** " . implode(', ', $tags) . "\n";
+        }
+        
+        $featured_image = get_the_post_thumbnail_url($post->ID, 'full');
+        if ($featured_image) {
+            $output .= "- **Featured Image:** " . $featured_image . "\n";
+        }
+        
+        $output .= "- **View URL:** " . get_permalink($post->ID) . "\n";
+        $output .= "- **Edit URL:** " . get_edit_post_link($post->ID) . "\n";
+        
+        if (!empty($post->post_excerpt)) {
+            $output .= "\n## Excerpt\n";
+            $output .= $post->post_excerpt . "\n";
+        }
+        
+        if (!empty($post->post_content)) {
+            $output .= "\n## Content\n";
+            // Limit content display to first 1000 characters for readability
+            $content = wp_strip_all_tags($post->post_content);
+            if (strlen($content) > 1000) {
+                $output .= substr($content, 0, 1000) . "...\n\n*[Content truncated - full content available at the edit URL above]*\n";
+            } else {
+                $output .= $content . "\n";
+            }
+        }
+        
+        return $output;
+    }
+    
+    /**
+     * Get status icon for posts
+     */
+    private function get_status_icon($status) {
+        switch ($status) {
+            case 'publish':
+                return '✅';
+            case 'draft':
+                return '📝';
+            case 'private':
+                return '🔒';
+            case 'trash':
+                return '🗑️';
+            case 'pending':
+                return '⏳';
+            case 'future':
+                return '⏰';
+            default:
+                return '📄';
+        }
+    }
+    
     
     /**
      * Get a specific post
@@ -431,25 +587,34 @@ class WP_Claude_Code_Content_Manager {
             }
         }
         
-        return array(
-            'success' => true,
-            'post' => array(
-                'ID' => $post->ID,
-                'title' => $post->post_title,
-                'content' => $post->post_content,
-                'excerpt' => $post->post_excerpt,
-                'status' => $post->post_status,
-                'type' => $post->post_type,
-                'date' => $post->post_date,
-                'modified' => $post->post_modified,
-                'author' => get_the_author_meta('display_name', $post->post_author),
-                'url' => get_permalink($post->ID),
-                'edit_url' => get_edit_post_link($post->ID),
-                'categories' => $categories,
-                'tags' => $tags,
-                'featured_image' => get_the_post_thumbnail_url($post->ID, 'full')
-            )
-        );
+        // Check if this is being called from a tool (formatted output) or AJAX (JSON)
+        $from_tool = defined('WP_CLAUDE_CODE_TOOL_EXECUTION') && WP_CLAUDE_CODE_TOOL_EXECUTION;
+        
+        if ($from_tool) {
+            // Return formatted string for tool use
+            return $this->format_single_post_output($post, $categories, $tags);
+        } else {
+            // Return JSON data for AJAX
+            return array(
+                'success' => true,
+                'post' => array(
+                    'ID' => $post->ID,
+                    'title' => $post->post_title,
+                    'content' => $post->post_content,
+                    'excerpt' => $post->post_excerpt,
+                    'status' => $post->post_status,
+                    'type' => $post->post_type,
+                    'date' => $post->post_date,
+                    'modified' => $post->post_modified,
+                    'author' => get_the_author_meta('display_name', $post->post_author),
+                    'url' => get_permalink($post->ID),
+                    'edit_url' => get_edit_post_link($post->ID),
+                    'categories' => $categories,
+                    'tags' => $tags,
+                    'featured_image' => get_the_post_thumbnail_url($post->ID, 'full')
+                )
+            );
+        }
     }
     
     /**

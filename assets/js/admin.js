@@ -42,6 +42,11 @@ jQuery(document).ready(function($) {
         $('#prompt-category-filter').on('change', filterPrompts);
         $(document).on('click', '.prompt-item', usePrompt);
         $(document).on('click', '.prompt-action', handlePromptAction);
+        
+        // Settings page specific events
+        if (window.location.href.includes('claude-code-settings')) {
+            initializeSettingsPage();
+        }
     }
     
     function sendMessage() {
@@ -131,13 +136,135 @@ jQuery(document).ready(function($) {
     }
     
     function formatContent(content) {
+        // console.log('formatContent called with:', content);
+        
+        // First, detect and format structured content that starts with "# " (WordPress tool results)
+        content = content.replace(/(^|\n\n)(# [^\n]+[\s\S]*?)(?=\n\n(?![#\-*])|$)/g, function(match, prefix, structuredContent) {
+            // console.log('Structured content found:', structuredContent.substring(0, 100) + '...');
+            
+            // Check if this looks like a WordPress tool result (contains typical headers)
+            if (structuredContent.match(/^# (WordPress|Active Theme|Database)/m) || 
+                structuredContent.match(/##\s+(WordPress Core|Active Theme|Plugins|Database|Server Environment)/m)) {
+                
+                return prefix + `<div class="tool-result">
+                    <div class="tool-result-header">🔧 Tool Result</div>
+                    <div class="tool-result-content">
+                        ${formatToolResultContent(structuredContent)}
+                    </div>
+                </div>`;
+            }
+            return match; // Return unchanged if not a tool result
+        });
+        
+        // Format JSON objects that appear standalone (tool results)
+        content = content.replace(/(^|\n\n)(\{[\s\S]*?\})(?=\n\n|$)/g, function(match, prefix, jsonContent) {
+            try {
+                // Try to parse and reformat as JSON
+                const parsed = JSON.parse(jsonContent);
+                return prefix + `<div class="tool-result">
+                    <div class="tool-result-header">🔧 Tool Result (JSON)</div>
+                    <div class="tool-result-content">
+                        <pre><code>${escapeHtml(JSON.stringify(parsed, null, 2))}</code></pre>
+                    </div>
+                </div>`;
+            } catch (e) {
+                // Not valid JSON, return unchanged
+                return match;
+            }
+        });
+        
+        // Legacy: Handle old "Tool Result:" format for backward compatibility
+        content = content.replace(/Tool Result:\s*([\s\S]*?)(?=\n\n[A-Za-z]|$)/g, function(match, resultContent) {
+            // console.log('Legacy tool result found:', match.substring(0, 100) + '...');
+            resultContent = resultContent.trim();
+            
+            // Try to parse as JSON first
+            try {
+                if (resultContent.startsWith('{') && resultContent.endsWith('}')) {
+                    const toolData = JSON.parse(resultContent);
+                    return `<div class="tool-result">
+                        <div class="tool-result-header">🔧 Tool Result (JSON)</div>
+                        <div class="tool-result-content">
+                            <pre><code>${escapeHtml(JSON.stringify(toolData, null, 2))}</code></pre>
+                        </div>
+                    </div>`;
+                }
+            } catch (e) {
+                // Not JSON, continue
+            }
+            
+            // Handle formatted string results
+            if (resultContent.startsWith('# ')) {
+                return `<div class="tool-result">
+                    <div class="tool-result-header">🔧 Tool Result</div>
+                    <div class="tool-result-content">
+                        ${formatToolResultContent(resultContent)}
+                    </div>
+                </div>`;
+            } else {
+                // Plain text tool result
+                return `<div class="tool-result">
+                    <div class="tool-result-header">🔧 Tool Result</div>
+                    <div class="tool-result-content">
+                        <pre><code>${escapeHtml(resultContent)}</code></pre>
+                    </div>
+                </div>`;
+            }
+        });
+        
         // Convert markdown-style code blocks
         content = content.replace(/```(\w+)?\n([\s\S]*?)```/g, function(match, lang, code) {
-            return `<div class="code-block"><pre><code>${escapeHtml(code.trim())}</code></pre></div>`;
+            return `<div class="code-block">
+                <div class="code-block-header">${lang || 'code'}</div>
+                <pre><code>${escapeHtml(code.trim())}</code></pre>
+            </div>`;
         });
         
         // Convert inline code
-        content = content.replace(/`([^`]+)`/g, '<code>$1</code>');
+        content = content.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+        
+        // Convert bold text
+        content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        
+        // Convert bullet points
+        content = content.replace(/^- (.*?)$/gm, '<div class="bullet-point">• $1</div>');
+        
+        // Convert line breaks
+        content = content.replace(/\n/g, '<br>');
+        
+        return content;
+    }
+    
+    // formatStructuredBody function removed - functionality moved to formatToolResultContent
+    
+    function formatToolResultContent(content) {
+        // Format markdown headers
+        content = content.replace(/^### (.*?)$/gm, '<h4 class="tool-subsection-header">$1</h4>');
+        content = content.replace(/^## (.*?)$/gm, '<h3 class="tool-section-header">$1</h3>');
+        content = content.replace(/^# (.*?)$/gm, '<h2 class="tool-main-header">$1</h2>');
+        
+        // Format key-value pairs that start with - **Key:**
+        content = content.replace(/^- \*\*(.*?):\*\*\s*(.*)$/gm, function(match, key, value) {
+            return `<div class="info-row">
+                <span class="info-key">${escapeHtml(key.trim())}:</span>
+                <span class="info-value">${escapeHtml(value.trim())}</span>
+            </div>`;
+        });
+        
+        // Format status icons and emojis (keep them as-is)
+        content = content.replace(/(✅|⚠️|❌|🔍|📊|💬|💡|🔄)/g, '<span class="status-icon">$1</span>');
+        
+        // Format bullet points (that aren't key-value pairs)
+        content = content.replace(/^- ((?!\*\*).*?)$/gm, '<div class="bullet-point">• $1</div>');
+        
+        // Format inline code (preserve backticks)
+        content = content.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+        
+        // Format bold text
+        content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        
+        // Handle horizontal rules
+        content = content.replace(/^---$/gm, '<hr class="tool-separator">');
         
         // Convert line breaks
         content = content.replace(/\n/g, '<br>');
@@ -1021,21 +1148,16 @@ jQuery(document).ready(function($) {
         // Update display
         updateModelDisplay();
         
-        // Add system message about model change
-        const modelNames = {
-            'claude-3-sonnet': 'Claude 3 Sonnet',
-            'claude-3-opus': 'Claude 3 Opus', 
-            'claude-3-haiku': 'Claude 3 Haiku',
-            'gpt-4o': 'GPT-4o',
-            'gpt-4o-mini': 'GPT-4o Mini',
-            'gpt-4': 'GPT-4',
-            'gpt-3.5-turbo': 'GPT-3.5 Turbo'
-        };
+        // Get model display name from selector options instead of hardcoded mapping
+        const currentOption = $('#model-selector option[value="' + newModel + '"]');
+        const newModelName = currentOption.length ? currentOption.text().replace(' 🖼️', '') : newModel;
+        const oldOption = $('#model-selector option[value="' + oldModel + '"]');
+        const oldModelName = oldOption.length ? oldOption.text().replace(' 🖼️', '') : oldModel;
         
         const systemMessage = `
             <div class="system-message model-change">
-                <p>🔄 <strong>Model changed:</strong> ${modelNames[oldModel]} → ${modelNames[newModel]}</p>
-                <p><small>The assistant will now use ${modelNames[newModel]} for responses.</small></p>
+                <p>🔄 <strong>Model changed:</strong> ${oldModelName} → ${newModelName}</p>
+                <p><small>The assistant will now use ${newModelName} for responses.</small></p>
             </div>
         `;
         
@@ -1060,18 +1182,9 @@ jQuery(document).ready(function($) {
     }
     
     function updateModelDisplay() {
-        const modelNames = {
-            'claude-3-sonnet': 'Claude 3 Sonnet',
-            'claude-3-opus': 'Claude 3 Opus',
-            'claude-3-haiku': 'Claude 3 Haiku',
-            'gpt-4o': 'GPT-4o',
-            'gpt-4o-mini': 'GPT-4o Mini',
-            'gpt-4': 'GPT-4',
-            'gpt-3.5-turbo': 'GPT-3.5 Turbo'
-        };
-        
-        // Update model indicator in interface
-        const currentModelName = modelNames[currentModel] || currentModel;
+        // Get model display name from selector options instead of hardcoded mapping
+        const currentOption = $('#model-selector option[value="' + currentModel + '"]');
+        const currentModelName = currentOption.length ? currentOption.text().replace(' 🖼️', '') : currentModel;
         
         // Add model info to status area if needed
         if (!$('#model-info').length) {
@@ -1088,16 +1201,22 @@ jQuery(document).ready(function($) {
         
         // Add model indicator for assistant messages
         if (type === 'assistant') {
-            const modelShortNames = {
-                'claude-3-sonnet': 'Sonnet',
-                'claude-3-opus': 'Opus',
-                'claude-3-haiku': 'Haiku',
-                'gpt-4o': 'GPT-4o',
-                'gpt-4o-mini': '4o-mini',
-                'gpt-4': 'GPT-4',
-                'gpt-3.5-turbo': 'GPT-3.5'
-            };
-            const modelShortName = modelShortNames[currentModel] || currentModel;
+            // Create a short name from the full model name
+            const currentOption = $('#model-selector option[value="' + currentModel + '"]');
+            let modelShortName = currentModel;
+            if (currentOption.length) {
+                const fullName = currentOption.text().replace(' 🖼️', '');
+                // Extract short name (e.g., "Claude 3.5 Sonnet" -> "Sonnet")
+                if (fullName.includes('Sonnet')) modelShortName = 'Sonnet';
+                else if (fullName.includes('Opus')) modelShortName = 'Opus';
+                else if (fullName.includes('Haiku')) modelShortName = 'Haiku';
+                else if (fullName.includes('GPT-4o Mini')) modelShortName = '4o-mini';
+                else if (fullName.includes('GPT-4o')) modelShortName = 'GPT-4o';
+                else if (fullName.includes('GPT-4 Turbo')) modelShortName = '4-Turbo';
+                else if (fullName.includes('GPT-4')) modelShortName = 'GPT-4';
+                else if (fullName.includes('GPT-3.5')) modelShortName = 'GPT-3.5';
+                else modelShortName = fullName.split(' ')[0]; // First word as fallback
+            }
             html += `<div class="model-indicator">${modelShortName}</div>`;
         }
         
@@ -1162,16 +1281,9 @@ jQuery(document).ready(function($) {
     }
     
     function getModelDisplayName(model) {
-        const modelNames = {
-            'claude-3-sonnet': 'Claude 3 Sonnet',
-            'claude-3-opus': 'Claude 3 Opus',
-            'claude-3-haiku': 'Claude 3 Haiku',
-            'gpt-4o': 'GPT-4o',
-            'gpt-4o-mini': 'GPT-4o Mini',
-            'gpt-4': 'GPT-4',
-            'gpt-3.5-turbo': 'GPT-3.5 Turbo'
-        };
-        return modelNames[model] || model;
+        // Get model display name from selector options instead of hardcoded mapping
+        const option = $('#model-selector option[value="' + model + '"]');
+        return option.length ? option.text().replace(' 🖼️', '') : model;
     }
     
     function showNotification(message, type = 'info') {
@@ -1368,6 +1480,169 @@ jQuery(document).ready(function($) {
         }
     }
     
+    // Settings Page Functions
+    function initializeSettingsPage() {
+        console.log('Initializing settings page functionality...');
+        
+        // Temperature slider updates
+        $('.temperature-slider').on('input', function() {
+            const value = $(this).val();
+            $(this).next('.temperature-value').text(value);
+        });
+        
+        // API key visibility toggles
+        $('.toggle-visibility').on('click', function() {
+            const targetId = $(this).data('target');
+            const input = $('#' + targetId);
+            const icon = $(this).find('.dashicons');
+            
+            if (input.attr('type') === 'password') {
+                input.attr('type', 'text');
+                icon.removeClass('dashicons-visibility').addClass('dashicons-hidden');
+            } else {
+                input.attr('type', 'password');
+                icon.removeClass('dashicons-hidden').addClass('dashicons-visibility');
+            }
+        });
+        
+        // Provider-specific connection tests
+        $('.test-connection').on('click', function() {
+            const provider = $(this).data('provider');
+            testProviderConnection(provider);
+        });
+        
+        // Auto-detect configuration
+        $('.detect-config').on('click', function() {
+            const provider = $(this).data('provider');
+            detectProviderConfig(provider);
+        });
+        
+        // Provider-specific model refresh
+        $('#refresh-openai-models, #refresh-claude-models').on('click', function() {
+            const provider = $(this).attr('id').includes('openai') ? 'openai' : 'claude';
+            refreshProviderModels(provider);
+        });
+    }
+    
+    function testProviderConnection(provider) {
+        const button = $('.test-connection[data-provider="' + provider + '"]');
+        const result = $('#' + provider + '-connection-result');
+        
+        button.prop('disabled', true).text('Testing...');
+        result.removeClass('success error').html('<p>Testing connection...</p>').show();
+        
+        $.ajax({
+            url: claudeCode.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'claude_code_test_provider_connection',
+                provider: provider,
+                api_key: $('#' + provider + '_api_key').val(),
+                model: $('#' + provider + '_model').val(),
+                nonce: claudeCode.nonce
+            },
+            success: function(response) {
+                if (response.success) {
+                    result.removeClass('error').addClass('success').html('<div style="background: #ecf7ed; border: 1px solid #46b450; padding: 10px; border-radius: 4px;"><strong>✅ Connection Successful!</strong><br>' + response.data.message + '</div>');
+                } else {
+                    result.removeClass('success').addClass('error').html('<div style="background: #f8d7da; border: 1px solid #dc3232; padding: 10px; border-radius: 4px;"><strong>❌ Connection Failed</strong><br>' + (response.data?.message || response.data || 'Unknown error') + '</div>');
+                }
+            },
+            error: function() {
+                result.removeClass('success').addClass('error').html('<div style="background: #f8d7da; border: 1px solid #dc3232; padding: 10px; border-radius: 4px;"><strong>❌ Network Error</strong><br>Failed to connect to server</div>');
+            },
+            complete: function() {
+                button.prop('disabled', false).text('Test Connection');
+            }
+        });
+    }
+    
+    function detectProviderConfig(provider) {
+        $.ajax({
+            url: claudeCode.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'claude_code_detect_configuration',
+                provider: provider,
+                nonce: claudeCode.nonce
+            },
+            success: function(response) {
+                if (response.success) {
+                    const config = response.data.config;
+                    if (config.api_key) {
+                        $('#' + provider + '_api_key').val(config.api_key);
+                    }
+                    if (config.model) {
+                        $('#' + provider + '_model').val(config.model);
+                    }
+                    if (config.max_tokens) {
+                        $('#' + provider + '_max_tokens').val(config.max_tokens);
+                    }
+                    if (config.temperature) {
+                        $('#' + provider + '_temperature').val(config.temperature);
+                        $('#' + provider + '_temperature').next('.temperature-value').text(config.temperature);
+                    }
+                    showNotification('✅ Configuration detected and applied!', 'success');
+                } else {
+                    showNotification('⚠️ No configuration detected for ' + provider, 'warning');
+                }
+            },
+            error: function() {
+                showNotification('❌ Error detecting configuration', 'error');
+            }
+        });
+    }
+    
+    function refreshProviderModels(provider) {
+        const button = $('#refresh-' + provider + '-models');
+        const status = $('#' + provider + '-models-status');
+        
+        button.prop('disabled', true).html('⟳');
+        status.text('Refreshing models...');
+        
+        $.ajax({
+            url: claudeCode.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'claude_code_refresh_models',
+                nonce: claudeCode.nonce
+            },
+            success: function(response) {
+                if (response.success) {
+                    status.text('Models refreshed successfully');
+                    showNotification('✅ Models refreshed for ' + provider, 'success');
+                    
+                    // Update the model selector if available
+                    if (response.data.models && response.data.models[provider]) {
+                        const select = $('#' + provider + '_model');
+                        const currentValue = select.val();
+                        select.empty();
+                        
+                        response.data.models[provider].forEach(function(model) {
+                            const option = $('<option></option>').attr('value', model.id).text(model.name);
+                            select.append(option);
+                        });
+                        
+                        // Restore previous selection if it exists
+                        if (select.find('option[value="' + currentValue + '"]').length) {
+                            select.val(currentValue);
+                        }
+                    }
+                } else {
+                    status.text('Failed to refresh models');
+                    showNotification('❌ Failed to refresh models: ' + (response.data || 'Unknown error'), 'error');
+                }
+            },
+            error: function() {
+                status.text('Network error');
+                showNotification('❌ Network error while refreshing models', 'error');
+            },
+            complete: function() {
+                button.prop('disabled', false).html('🔄');
+            }
+        });
+    }
+    
     // Expose key functions to global scope for chat UI enhancement
     window.sendMessage = sendMessage;
     window.addMessageToChat = addMessageToChat;
@@ -1376,6 +1651,67 @@ jQuery(document).ready(function($) {
     window.hideTypingIndicator = hideTypingIndicator;
     window.conversationId = conversationId;
     
+    // Test function for tool result formatting (can be called from browser console)
+    window.testToolResultFormatting = function() {
+        console.log('Testing tool result formatting...');
+        
+        // Test WordPress-style tool result
+        const wpSiteContent = `# WordPress Site Information
+
+## WordPress Core
+- **Version:** 6.4.1
+- **Site URL:** https://example.com
+- **Site Name:** Test Site
+- **Admin Email:** admin@example.com
+
+## Active Theme
+- **Name:** Twenty Twenty-Four
+- **Version:** 1.0
+- **Author:** WordPress Team
+
+## Database
+- **Posts:** 42
+- **Users:** 5
+- **Comments:** 18
+
+---
+
+✅ All systems operational
+⚠️ Cache needs optimization
+📊 Performance metrics available`;
+        
+        // Test JSON tool result
+        const jsonContent = `{
+  "success": true,
+  "data": {
+    "posts": 42,
+    "status": "active"
+  }
+}`;
+
+        // Test mixed content
+        const mixedContent = `Here's your site information:
+
+${wpSiteContent}
+
+And here's the configuration:
+
+${jsonContent}
+
+That's all the data I found.`;
+
+        console.log('Testing WordPress tool result...');
+        addMessageToChat('assistant', wpSiteContent, ['wp_site_info']);
+        
+        console.log('Testing JSON tool result...');
+        addMessageToChat('assistant', jsonContent, ['get_config']);
+        
+        console.log('Testing mixed content...');
+        addMessageToChat('assistant', mixedContent, ['multiple_tools']);
+        
+        return 'Test complete - check the chat for formatted results';
+    };
+
     // Initialize the interface
     init();
 });

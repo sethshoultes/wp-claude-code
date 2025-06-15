@@ -38,10 +38,8 @@ class WP_Claude_Code_Claude_API {
     public function set_model($model) {
         $this->current_model = sanitize_text_field($model);
         
-        // Only auto-update provider if explicitly set to 'auto'
-        if (isset($this->settings['api_provider']) && $this->settings['api_provider'] === 'auto') {
-            $this->api_provider = $this->detect_provider_from_model($model);
-        }
+        // Always auto-update provider based on model to enable cross-provider switching
+        $this->api_provider = $this->detect_provider_from_model($model);
     }
     
     /**
@@ -468,7 +466,16 @@ class WP_Claude_Code_Claude_API {
                     $tools_used[] = $block['name'];
                     $tool_result = $this->execute_tool($block['name'], $block['input']);
                     if (!is_wp_error($tool_result)) {
-                        $content .= "\n\nTool Result: " . json_encode($tool_result);
+                        // Add tool result directly without extra "Tool Result:" prefix
+                        // The JavaScript will handle the formatting and wrapping
+                        if (is_string($tool_result)) {
+                            $content .= "\n\n" . $tool_result;
+                        } elseif (is_array($tool_result) && isset($tool_result['message'])) {
+                            // For tool results with a message field, use that for display
+                            $content .= "\n\n" . $tool_result['message'];
+                        } else {
+                            $content .= "\n\n" . json_encode($tool_result, JSON_PRETTY_PRINT);
+                        }
                     }
                 }
             }
@@ -499,7 +506,16 @@ class WP_Claude_Code_Claude_API {
                     
                     $tool_result = $this->execute_tool($function_name, $arguments);
                     if (!is_wp_error($tool_result)) {
-                        $content .= "\n\nTool Result: " . json_encode($tool_result);
+                        // Add tool result directly without extra "Tool Result:" prefix
+                        // The JavaScript will handle the formatting and wrapping
+                        if (is_string($tool_result)) {
+                            $content .= "\n\n" . $tool_result;
+                        } elseif (is_array($tool_result) && isset($tool_result['message'])) {
+                            // For tool results with a message field, use that for display
+                            $content .= "\n\n" . $tool_result['message'];
+                        } else {
+                            $content .= "\n\n" . json_encode($tool_result, JSON_PRETTY_PRINT);
+                        }
                     }
                 }
             }
@@ -579,32 +595,24 @@ class WP_Claude_Code_Claude_API {
     }
     
     /**
-     * Get models specific to the current provider
+     * Get all available models regardless of current provider
      */
     private function get_provider_specific_models() {
-        switch ($this->api_provider) {
-            case 'claude_direct':
-                return array(
-                    'claude' => array(
-                        array('id' => 'claude-3-5-sonnet-20241022', 'name' => 'Claude 3.5 Sonnet', 'supports_vision' => true),
-                        array('id' => 'claude-3-5-haiku-20241022', 'name' => 'Claude 3.5 Haiku', 'supports_vision' => true),
-                        array('id' => 'claude-3-opus-20240229', 'name' => 'Claude 3 Opus', 'supports_vision' => true)
-                    ),
-                    'openai' => array(),
-                    'other' => array()
-                );
-            case 'openai_direct':
-            default:
-                return array(
-                    'claude' => array(),
-                    'openai' => array(
-                        array('id' => 'gpt-4o', 'name' => 'GPT-4o', 'supports_vision' => true),
-                        array('id' => 'gpt-4o-mini', 'name' => 'GPT-4o Mini', 'supports_vision' => true),
-                        array('id' => 'gpt-4-turbo', 'name' => 'GPT-4 Turbo', 'supports_vision' => true)
-                    ),
-                    'other' => array()
-                );
-        }
+        // Always return all models so users can switch between providers in chat
+        return array(
+            'claude' => array(
+                array('id' => 'claude-3-5-sonnet-20241022', 'name' => 'Claude 3.5 Sonnet', 'supports_vision' => true),
+                array('id' => 'claude-3-5-haiku-20241022', 'name' => 'Claude 3.5 Haiku', 'supports_vision' => true),
+                array('id' => 'claude-3-opus-20240229', 'name' => 'Claude 3 Opus', 'supports_vision' => true)
+            ),
+            'openai' => array(
+                array('id' => 'gpt-4o', 'name' => 'GPT-4o', 'supports_vision' => true),
+                array('id' => 'gpt-4o-mini', 'name' => 'GPT-4o Mini', 'supports_vision' => true),
+                array('id' => 'gpt-4-turbo', 'name' => 'GPT-4 Turbo', 'supports_vision' => true),
+                array('id' => 'gpt-4', 'name' => 'GPT-4', 'supports_vision' => false)
+            ),
+            'other' => array()
+        );
     }
     
     /**
@@ -987,6 +995,11 @@ How can I help you with your WordPress development today?";
     
     private function execute_tool($function_name, $arguments) {
         error_log("WP Claude Code: Executing tool: $function_name with arguments: " . json_encode($arguments));
+        
+        // Define constant to indicate we're in tool execution context
+        if (!defined('WP_CLAUDE_CODE_TOOL_EXECUTION')) {
+            define('WP_CLAUDE_CODE_TOOL_EXECUTION', true);
+        }
 
         switch ($function_name) {
             case 'wp_file_read':
