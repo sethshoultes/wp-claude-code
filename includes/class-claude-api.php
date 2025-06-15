@@ -183,8 +183,6 @@ class WP_Claude_Code_Claude_API {
      * Send message via LiteLLM proxy
      */
     private function send_message_litellm_proxy($message, $conversation_id = '', $attachments = array()) {
-        // Use the same proxy key as MemberPress
-        $proxy_key = '3d82afe47512fcb1faba41cc1c9c796d3dbe8624b0a5c62fa68e6d38f0bf6d72';
         
         $conversation_history = $this->get_conversation_history($conversation_id);
         $system_prompt = $this->get_system_prompt();
@@ -220,7 +218,7 @@ class WP_Claude_Code_Claude_API {
         error_log('WP Claude Code: LiteLLM Proxy Request - Model: ' . $this->current_model);
         error_log('WP Claude Code: LiteLLM Proxy Request - Has attachments: ' . (!empty($attachments) ? 'Yes' : 'No'));
         
-        $response = $this->make_litellm_proxy_request($request_data, $proxy_key);
+        $response = $this->make_litellm_proxy_request($request_data, '3d82afe47512fcb1faba41cc1c9c796d3dbe8624b0a5c62fa68e6d38f0bf6d72');
         
         if (is_wp_error($response)) {
             return $response;
