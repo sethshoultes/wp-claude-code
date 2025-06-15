@@ -220,14 +220,18 @@ jQuery(document).ready(function($) {
             </div>`;
         });
         
-        // Convert inline code
-        content = content.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+        // Convert inline code (escape HTML first to prevent rendering)
+        content = content.replace(/`([^`]+)`/g, function(match, codeContent) {
+            // Escape HTML in code content to prevent it from being rendered
+            const escapedCode = escapeHtml(codeContent);
+            return `<code class="inline-code">${escapedCode}</code>`;
+        });
         
         // Convert bold text
         content = content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
         
-        // Convert bullet points
-        content = content.replace(/^- (.*?)$/gm, '<div class="bullet-point">• $1</div>');
+        // Convert bullet points - simple approach
+        content = content.replace(/^- (.*?)$/gm, '• $1<br>');
         
         // Convert line breaks
         content = content.replace(/\n/g, '<br>');
@@ -254,8 +258,8 @@ jQuery(document).ready(function($) {
         // Format status icons and emojis (keep them as-is)
         content = content.replace(/(✅|⚠️|❌|🔍|📊|💬|💡|🔄)/g, '<span class="status-icon">$1</span>');
         
-        // Format bullet points (that aren't key-value pairs)
-        content = content.replace(/^- ((?!\*\*).*?)$/gm, '<div class="bullet-point">• $1</div>');
+        // Format bullet points (that aren't key-value pairs) - simple approach
+        content = content.replace(/^- ((?!\*\*).*?)$/gm, '• $1<br>');
         
         // Format inline code (preserve backticks)
         content = content.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
@@ -349,12 +353,97 @@ jQuery(document).ready(function($) {
     }
     
     function updateConnectionStatus() {
-        // This would check the LiteLLM connection status
-        // For now, we'll simulate it
-        setTimeout(function() {
-            $('#connection-status').text('Ready');
-            $('.status-dot').addClass('connected');
-        }, 1000);
+        // Get current provider information
+        $.ajax({
+            url: claudeCode.ajaxUrl,
+            type: 'POST',
+            data: {
+                action: 'claude_code_get_provider_status',
+                nonce: claudeCode.nonce
+            },
+            success: function(response) {
+                if (response.success) {
+                    const provider = response.data.provider;
+                    const providerName = getProviderDisplayName(provider);
+                    const statusIcon = getProviderStatusIcon(provider);
+                    
+                    // Store provider info globally for message creation
+                    window.currentProviderInfo = response.data;
+                    
+                    // Update connection status to show provider info
+                    $('#connection-status').html(`${statusIcon} ${providerName}`);
+                    $('.status-dot').addClass('connected');
+                    
+                    // Clean up and consolidate provider display
+                    updateProviderDisplay(provider, providerName);
+                } else {
+                    $('#connection-status').text('Configuration Error');
+                    $('.status-dot').removeClass('connected');
+                }
+            },
+            error: function() {
+                $('#connection-status').text('Ready');
+                $('.status-dot').addClass('connected');
+            }
+        });
+    }
+    
+    function getProviderDisplayName(provider) {
+        switch(provider) {
+            case 'litellm_proxy':
+                return 'LiteLLM Proxy';
+            case 'claude_direct':
+                return 'Claude Direct';
+            case 'openai_direct':
+                return 'OpenAI Direct';
+            default:
+                return 'Unknown Provider';
+        }
+    }
+    
+    function getProviderStatusIcon(provider) {
+        switch(provider) {
+            case 'litellm_proxy':
+                return '🌐'; // Cloud/proxy icon
+            case 'claude_direct':
+                return '🤖'; // Claude icon
+            case 'openai_direct':
+                return '⚡'; // OpenAI icon
+            default:
+                return '❓';
+        }
+    }
+    
+    function updateProviderDisplay(provider, providerName) {
+        // Remove all existing provider displays to avoid confusion
+        $('.provider-badge, .provider-info').remove();
+        
+        // Remove the confusing question mark and other redundant elements
+        $('[title="Using ' + providerName + '"]').remove();
+        
+        // Clean up any duplicate or broken elements
+        $('.chat-header [data-provider], .header-left [data-provider]').remove();
+        
+        // Create a single, clear provider indicator
+        const statusIcon = getProviderStatusIcon(provider);
+        const keyRequired = provider !== 'litellm_proxy' ? ' (API Key Required)' : ' (No Setup Required)';
+        
+        // Replace the connection status completely with provider info
+        const statusArea = $('.status-indicator');
+        if (statusArea.length) {
+            // Keep the status dot but replace the text completely
+            statusArea.find('#connection-status').html(`${statusIcon} ${providerName}`);
+            
+            // Add a tooltip for more info
+            statusArea.attr('title', `Using ${providerName}${keyRequired}`);
+            statusArea.css('cursor', 'help');
+        }
+        
+        // Remove model info from status (it's redundant with model selector)
+        $('#model-info').remove();
+        
+        // Ensure no duplicate indicators exist
+        $('.chat-header .provider-duplicate').remove();
     }
     
     // Conversation Management Functions
@@ -1186,18 +1275,23 @@ jQuery(document).ready(function($) {
         const currentOption = $('#model-selector option[value="' + currentModel + '"]');
         const currentModelName = currentOption.length ? currentOption.text().replace(' 🖼️', '') : currentModel;
         
-        // Add model info to status area if needed
-        if (!$('#model-info').length) {
-            $('.status-indicator').append(`<div id="model-info" style="font-size: 11px; color: #666; margin-top: 4px;">Model: <span id="current-model-name">${currentModelName}</span></div>`);
-        } else {
-            $('#current-model-name').text(currentModelName);
-        }
+        // Don't add model info to status area - it's redundant with the model selector
+        // The model selector already shows the current model clearly
+        
+        // Update the model selector display to make sure it's showing the right value
+        $('#model-selector').val(currentModel);
     }
     
     // Update the createMessageHtml function to include model indicator
     const originalCreateMessageHtml = createMessageHtml;
-    createMessageHtml = function(type, content, toolsUsed = null) {
-        let html = `<div class="message ${type}">`;
+    createMessageHtml = function(type, content, toolsUsed = null, providerInfo = null) {
+        // Get current provider for data attribute
+        let currentProvider = 'litellm_proxy'; // default
+        if (window.currentProviderInfo && window.currentProviderInfo.provider) {
+            currentProvider = window.currentProviderInfo.provider;
+        }
+        
+        let html = `<div class="message ${type}" data-provider="${currentProvider}">`;
         
         // Add model indicator for assistant messages
         if (type === 'assistant') {

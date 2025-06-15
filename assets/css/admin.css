@@ -107,7 +107,7 @@
     height: 500px;
     overflow-y: auto;
     padding: 20px;
-    background: #fafafa;
+    background: #ffffff;
 }
 
 .message {
@@ -1464,17 +1464,26 @@
 /* Tool Result Bullet Points */
 .tool-result .bullet-point {
     margin: 4px 0;
-    padding-left: 8px;
-    color: #23282d;
+    padding: 4px 0 4px 8px;
+    color: #23282d !important;
     position: relative;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
 }
 
+/* Remove ::before for tool results too since JavaScript handles bullets */
 .tool-result .bullet-point::before {
-    content: '•';
-    color: #0073aa;
-    font-weight: bold;
-    position: absolute;
-    left: 0;
+    content: none !important;
+    display: none !important;
+}
+
+/* Style bullet character in tool results */
+.tool-result .bullet-point .bullet-char {
+    color: #0073aa !important;
+    font-weight: bold !important;
+    margin-right: 6px !important;
+    display: inline !important;
 }
 
 /* Structured Output Formatting */
@@ -1561,28 +1570,23 @@
     color: #24292f;
 }
 
-/* Inline Code Styling */
-.inline-code {
-    background: #f6f8fa;
-    color: #d73a49;
-    padding: 2px 4px;
-    border-radius: 3px;
-    font-size: 0.9em;
-    font-family: 'SFMono-Regular', 'Monaco', 'Inconsolata', 'Liberation Mono', 'Courier New', monospace;
+/* Inline Code Styling - Force override any WordPress defaults */
+.inline-code,
+code.inline-code,
+.message-content .inline-code,
+.message-content code.inline-code {
+    background: #f6f8fa !important;
+    color: #d73a49 !important;
+    padding: 2px 4px !important;
+    border-radius: 3px !important;
+    font-size: 0.9em !important;
+    font-family: 'SFMono-Regular', 'Monaco', 'Inconsolata', 'Liberation Mono', 'Courier New', monospace !important;
+    border: none !important;
+    box-shadow: none !important;
+    text-decoration: none !important;
 }
 
-/* Bullet Points */
-.bullet-point {
-    margin: 6px 0;
-    padding-left: 4px;
-    color: #23282d;
-}
 
-.bullet-point::before {
-    content: '';
-    color: #0073aa;
-    margin-right: 4px;
-}
 
 /* Tool Used Badge Enhancement */
 .tools-used {
@@ -1674,4 +1678,96 @@
 
 .structured-output .bullet-point {
     margin: 4px 0 4px 12px;
+}
+
+/* Provider Info in Header */
+.provider-info {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(0, 163, 42, 0.1);
+    color: #00a32a;
+    border: 1px solid rgba(0, 163, 42, 0.2);
+    cursor: help;
+}
+
+.provider-info .provider-icon {
+    font-size: 12px;
+}
+
+.provider-info .provider-text {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Different colors for different providers */
+.provider-info[title*="LiteLLM"] {
+    background: rgba(0, 163, 42, 0.1);
+    color: #00a32a;
+    border-color: rgba(0, 163, 42, 0.2);
+}
+
+.provider-info[title*="Direct"] {
+    background: rgba(0, 115, 170, 0.1);
+    color: #0073aa;
+    border-color: rgba(0, 115, 170, 0.2);
+}
+
+.provider-info:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: all 0.2s ease;
+}
+
+/* Enhanced Status Indicator */
+.status-indicator {
+    position: relative;
+}
+
+.status-indicator #connection-status {
+    font-weight: 500;
+    color: #555;
+}
+
+/* Provider Context in Model Selector */
+.model-selector-wrapper {
+    position: relative;
+}
+
+.model-provider-context {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #f6f7f7;
+    border: 1px solid #ddd;
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: #666;
+    z-index: 100;
+}
+
+/* Model Indicator Updates */
+.message.assistant .model-indicator {
+    background: rgba(0, 163, 42, 0.1);
+    color: #00a32a;
+    border: 1px solid rgba(0, 163, 42, 0.2);
+}
+
+.message.assistant[data-provider="litellm_proxy"] .model-indicator::before {
+    content: "🌐 ";
+}
+
+.message.assistant[data-provider="claude_direct"] .model-indicator::before {
+    content: "🤖 ";
+}
+
+.message.assistant[data-provider="openai_direct"] .model-indicator::before {
+    content: "⚡ ";
 }
