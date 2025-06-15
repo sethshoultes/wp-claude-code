@@ -24,6 +24,7 @@ class WP_Claude_Code_Admin {
         add_action('wp_ajax_claude_code_test_provider_connection', array($this, 'handle_test_provider_connection'));
         add_action('wp_ajax_claude_code_get_available_models', array($this, 'handle_get_available_models'));
         add_action('wp_ajax_claude_code_refresh_models', array($this, 'handle_refresh_models'));
+        add_action('wp_ajax_claude_code_get_provider_status', array($this, 'handle_get_provider_status'));
         add_action('wp_ajax_wp_claude_code_debug_logs', array($this, 'handle_debug_logs'));
         
         // Ensure backward compatibility by migrating old settings
@@ -1145,6 +1146,38 @@ class WP_Claude_Code_Admin {
             'total_models' => $total_models,
             'is_fallback' => false // Our method handles fallbacks internally
         ));
+    }
+    
+    /**
+     * Handle AJAX request to get current provider status
+     */
+    public function handle_get_provider_status() {
+        check_ajax_referer('claude_code_nonce', 'nonce');
+        
+        if (!current_user_can('edit_posts')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $settings = get_option('wp_claude_code_settings', array());
+        $provider = $settings['api_provider'] ?? 'litellm_proxy';
+        
+        // Get additional provider information
+        $provider_info = array(
+            'provider' => $provider,
+            'requires_api_key' => $provider !== 'litellm_proxy',
+            'ready' => true
+        );
+        
+        // Check if provider is properly configured
+        if ($provider === 'claude_direct' && empty($settings['claude_api_key'])) {
+            $provider_info['ready'] = false;
+            $provider_info['error'] = 'Claude API key not configured';
+        } elseif ($provider === 'openai_direct' && empty($settings['openai_api_key'])) {
+            $provider_info['ready'] = false;
+            $provider_info['error'] = 'OpenAI API key not configured';
+        }
+        
+        wp_send_json_success($provider_info);
     }
     
     /**
