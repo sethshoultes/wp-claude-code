@@ -7,18 +7,30 @@ class WP_Claude_Code_WP_CLI_Bridge {
             // Fallback to WordPress native functions
             return self::execute_native_alternative($command);
         }
-        
+
         if (!self::is_safe_command($command)) {
             return new WP_Error('unsafe_command', 'Command is not allowed for security reasons');
         }
-        
-        $full_command = self::$wp_cli_path . ' ' . $command . ' --path=' . escapeshellarg(ABSPATH);
-        
+
+        // Check if we're in emulation mode (for Local by Flywheel compatibility)
+        if (self::$wp_cli_path === 'emulated') {
+            error_log('WP Claude Code: Executing command in emulation mode: ' . $command);
+            return self::execute_native_alternative($command);
+        }
+
+        // Use plugin-specific wp-config.php if we're using the plugin's WP-CLI
+        if (strpos(self::$wp_cli_path, WP_CLAUDE_CODE_PLUGIN_PATH) === 0) {
+            $full_command = self::$wp_cli_path . ' --config=' . escapeshellarg(WP_CLAUDE_CODE_PLUGIN_PATH . 'bin/wp-config.php') . ' ' . $command;
+        } else {
+            $full_command = self::$wp_cli_path . ' ' . $command . ' --path=' . escapeshellarg(ABSPATH);
+        }
+
         $output = array();
         $return_var = 0;
-        
+
+        error_log('WP Claude Code: Executing WP-CLI command: ' . $full_command);
         exec($full_command . ' 2>&1', $output, $return_var);
-        
+
         return array(
             'command' => $command,
             'output' => implode("\n", $output),
@@ -103,27 +115,41 @@ class WP_Claude_Code_WP_CLI_Bridge {
     }
     
     public static function is_wp_cli_available() {
-        // Check multiple possible locations for WP-CLI
+        // LOCAL DEVELOPMENT OVERRIDE FOR WP CLAUDE CODE
+        // This is a special override for Local by Flywheel environments
+        // where command-line execution is restricted
+
+        // Check if we've created a marker file to indicate WP-CLI emulation is enabled
+        $wp_cli_emulation_marker = WP_CLAUDE_CODE_PLUGIN_PATH . 'bin/.wp_cli_emulation';
+        if (file_exists($wp_cli_emulation_marker)) {
+            error_log('WP Claude Code: Using WP-CLI emulation mode (Local by Flywheel compatible)');
+            self::$wp_cli_path = 'emulated';
+            return true;
+        }
+
+        // Standard detection method
         $wp_cli_paths = array(
             'wp',                           // Global install
-            '/usr/local/bin/wp',           // Standard install location  
+            '/usr/local/bin/wp',           // Standard install location
             '/usr/bin/wp',                 // Alternative location
             '/opt/wp-cli/wp-cli.phar',     // Local by Flywheel possible location
             ABSPATH . '../wp-cli.phar',    // Site-specific install
+            WP_CLAUDE_CODE_PLUGIN_PATH . 'bin/wp', // Plugin-specific install
         );
-        
+
         foreach ($wp_cli_paths as $path) {
             $output = array();
             $return_var = 0;
-            exec("$path --version 2>/dev/null", $output, $return_var);
-            
+            @exec("$path --version 2>/dev/null", $output, $return_var);
+
             if ($return_var === 0) {
                 // Store the working path for later use
                 self::$wp_cli_path = $path;
+                error_log('WP Claude Code: Found working WP-CLI at: ' . $path);
                 return true;
             }
         }
-        
+
         return false;
     }
     

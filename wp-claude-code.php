@@ -36,14 +36,18 @@ class WP_Claude_Code {
     public function init() {
         // Load includes
         $this->load_dependencies();
-        
+
         // Initialize components
         if (is_admin()) {
             WP_Claude_Code_Admin::get_instance();
+            WP_Claude_Code_Chat_UI::get_instance();
         }
-        
+
         WP_Claude_Code_API::get_instance();
         WP_Claude_Code_Security::get_instance();
+        WP_Claude_Code_Conversation_Manager::get_instance();
+        WP_Claude_Code_Content_Manager::get_instance();
+        WP_Claude_Code_File_Attachment::get_instance();
     }
     
     private function load_dependencies() {
@@ -54,6 +58,11 @@ class WP_Claude_Code {
         require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-database.php';
         require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-wp-cli-bridge.php';
         require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-claude-api.php';
+        require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-plugin-repository.php';
+        require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-chat-ui.php';
+        require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-conversation-manager.php';
+        require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-content-manager.php';
+        require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-file-attachment.php';
     }
     
     public function activate() {
@@ -62,12 +71,16 @@ class WP_Claude_Code {
         
         // Set default options - API key should be configured in settings
         add_option('wp_claude_code_settings', array(
-            'litellm_endpoint' => '',
-            'api_key' => '',
-            'model' => 'claude-3-sonnet-20240229',
+            'api_provider' => 'openai_direct', // claude_direct, openai_direct
+            'claude_api_key' => '',
+            'openai_api_key' => '',
+            'model' => 'gpt-4o',
             'max_tokens' => 4000,
-            'enabled_tools' => array('file_read', 'file_edit', 'wp_cli', 'db_query'),
-            'use_memberpress_ai_config' => true // Try to auto-detect from MemberPress AI
+            'enabled_tools' => array('file_read', 'file_edit', 'wp_cli', 'db_query', 'plugin_repository', 'content_management'),
+            'use_memberpress_ai_config' => true, // Try to auto-detect from MemberPress AI
+            'plugin_repository_enabled' => true, // WordPress.org plugin repository integration
+            'chat_ui_enabled' => true, // Modern markdown-based chat UI
+            'chat_ui_renderer' => 'client' // Client-side markdown rendering (faster)
         ));
         
         // Flush rewrite rules for API endpoints

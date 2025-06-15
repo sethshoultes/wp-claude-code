@@ -20,14 +20,14 @@ A Claude Code-style AI assistant interface for WordPress development and managem
 - **WP-CLI Integration** - Execute WordPress CLI commands (with native fallbacks)
 - **Security First** - Rate limiting, permission checks, and audit logging
 - **Universal Compatibility** - Works on shared hosting, VPS, Docker, Local development
-- **LiteLLM Proxy Support** - Flexible AI model integration
+- **Direct API Support** - Native integration with ChatGPT and Claude APIs
 
 ## 📋 Requirements
 
 - WordPress 5.0 or higher
 - PHP 7.4 or higher
 - Admin access to WordPress
-- LiteLLM proxy endpoint (for AI functionality)
+- OpenAI API key or Anthropic Claude API key
 
 ## 🔧 Installation
 
@@ -43,32 +43,41 @@ A Claude Code-style AI assistant interface for WordPress development and managem
 
 3. **Configure Settings**
    - Go to Claude Code → Settings
-   - Enter your LiteLLM proxy endpoint
-   - Configure API key and model preferences
+   - Choose your API provider (OpenAI or Claude Direct)
+   - Enter your API key from OpenAI or Anthropic
+   - Select your preferred model
    - Enable desired tools (file operations, database, WP-CLI)
 
 ## ⚙️ Configuration
 
-### LiteLLM Proxy Setup
-The plugin works with any LiteLLM proxy that supports OpenAI-compatible chat completions:
+### API Provider Setup
+The plugin works with direct API connections to OpenAI and Anthropic:
 
-```bash
-# Example LiteLLM proxy configuration
-litellm --model claude-3-sonnet-20240229 --port 4000
-```
+#### OpenAI Configuration
+1. Get your API key from [platform.openai.com](https://platform.openai.com)
+2. Go to Claude Code → Settings
+3. Select "Direct OpenAI API" as provider
+4. Enter your OpenAI API key
+5. Choose from available models (GPT-4o, GPT-4o Mini, GPT-4 Turbo)
+
+#### Claude Configuration  
+1. Get your API key from [console.anthropic.com](https://console.anthropic.com)
+2. Go to Claude Code → Settings
+3. Select "Direct Claude API" as provider
+4. Enter your Claude API key
+5. Choose from available models (Claude 3.5 Sonnet, Claude 3 Opus, etc.)
 
 ### Settings Options
-- **LiteLLM Endpoint** - Your proxy URL (e.g., `http://localhost:4000`)
-- **API Key** - Authentication key for your proxy
-- **Model** - AI model to use (Claude 3 Sonnet, GPT-4, etc.)
+- **API Provider** - Choose between OpenAI or Claude Direct
+- **API Key** - Your OpenAI or Anthropic API key
+- **Model** - AI model to use (GPT-4o, Claude 3.5 Sonnet, etc.)
 - **Max Tokens** - Response length limit
 - **Enabled Tools** - Choose which WordPress tools to enable
 
-### Auto-Detection
-The plugin can automatically detect and use configuration from:
-- MemberPress AI Assistant (if installed)
-- Environment variables
-- WordPress options
+### Features
+- **Image Analysis** - All models support vision capabilities
+- **Automatic Formatting** - Images optimized for each API provider
+- **Direct Integration** - No proxy required, faster responses
 
 ## 🎯 Usage
 
@@ -78,16 +87,19 @@ Access the main interface at **WordPress Admin → Claude Code**
 Example interactions:
 ```
 You: "Show me the active theme information"
-Claude: [Displays detailed theme info, files, features]
+AI Assistant: [Displays detailed theme info, files, features]
 
 You: "List all installed plugins"  
-Claude: [Shows plugin status, versions, descriptions]
+AI Assistant: [Shows plugin status, versions, descriptions]
 
 You: "Create a new page called 'About Us'"
-Claude: [Creates page and provides edit link]
+AI Assistant: [Creates page and provides edit link]
+
+You: "Analyze this screenshot of my website"
+AI Assistant: [Analyzes uploaded image with detailed feedback]
 
 You: "Check database performance"
-Claude: [Analyzes database health and provides recommendations]
+AI Assistant: [Analyzes database health and provides recommendations]
 ```
 
 ### Available Commands
@@ -97,6 +109,14 @@ Claude: [Analyzes database health and provides recommendations]
 - **Content Management** - "List posts" / "Create new page"
 - **Database Operations** - "Check database status" / "Show table sizes"
 - **File Operations** - "Read functions.php" / "Edit style.css"
+- **Image Analysis** - Upload screenshots, designs, or error pages for analysis
+
+### Image Analysis Features
+- **Website Screenshots** - Analyze layout, design, and UX issues
+- **Error Page Analysis** - Diagnose problems from error screenshots
+- **Design Review** - Get feedback on visual elements and styling
+- **Accessibility Assessment** - Identify accessibility improvements
+- **Mobile Responsiveness** - Review mobile layout and functionality
 
 ## 🛡️ Security Features
 

@@ -3,68 +3,140 @@
 class WP_Claude_Code_Claude_API {
     
     private $settings;
+    private $current_model;
+    private $api_provider;
     
     public function __construct() {
         $this->settings = get_option('wp_claude_code_settings', array());
+        $this->current_model = $this->settings['model'] ?? 'claude-3-sonnet';
         
-        // If configured to use MemberPress AI settings and no manual API key is set, try to get API key from there
-        if (!empty($this->settings['use_memberpress_ai_config']) && empty($this->settings['api_key'])) {
-            $this->load_memberpress_ai_config();
-        }
-    }
-    
-    private function load_memberpress_ai_config() {
-        error_log('WP Claude Code: Attempting to load MemberPress AI configuration');
-        
-        // Check if MemberPress AI Assistant is active and has settings
-        if (class_exists('\MemberpressAiAssistant\Admin\MPAIKeyManager')) {
-            error_log('WP Claude Code: MemberPress AI KeyManager class found');
-            try {
-                $key_manager = new \MemberpressAiAssistant\Admin\MPAIKeyManager();
-                $api_key = $key_manager->get_api_key('anthropic');
-                
-                if ($api_key) {
-                    $this->settings['api_key'] = $api_key;
-                    error_log('WP Claude Code: Successfully loaded API key from MemberPress AI KeyManager');
-                } else {
-                    error_log('WP Claude Code: No API key returned from MemberPress AI KeyManager');
-                }
-            } catch (Exception $e) {
-                error_log('WP Claude Code: Error loading MemberPress AI config: ' . $e->getMessage());
-            }
+        // Use explicit provider setting, only fall back to auto-detection if not set
+        if (!empty($this->settings['api_provider']) && $this->settings['api_provider'] !== 'auto') {
+            $this->api_provider = $this->settings['api_provider'];
         } else {
-            error_log('WP Claude Code: MemberPress AI KeyManager class not found, trying direct database access');
+            $this->api_provider = $this->detect_provider_from_model($this->current_model);
         }
         
-        // Always try fallback: get from MemberPress AI database options directly
-        $mpai_settings = get_option('mpai_settings', array());
-        error_log('WP Claude Code: MemberPress AI settings found: ' . (!empty($mpai_settings) ? 'Yes' : 'No'));
-        
-        if (!empty($mpai_settings)) {
-            error_log('WP Claude Code: Available keys in mpai_settings: ' . implode(', ', array_keys($mpai_settings)));
-            
-            if (!empty($mpai_settings['anthropic_api_key'])) {
-                $this->settings['api_key'] = $mpai_settings['anthropic_api_key'];
-                error_log('WP Claude Code: Loaded API key from MemberPress AI database options');
-            } else {
-                error_log('WP Claude Code: No anthropic_api_key found in mpai_settings');
-            }
-        }
-        
-        // Final check - log what we have
-        error_log('WP Claude Code: Final API key status: ' . (!empty($this->settings['api_key']) ? 'Available' : 'Not available'));
+        // Settings loaded - ready to use
     }
     
-    public function send_message($message, $conversation_id = '') {
-        $endpoint = $this->settings['litellm_endpoint'] ?? '';
+    /**
+     * Detect appropriate provider based on model name
+     */
+    private function detect_provider_from_model($model) {
+        if (strpos($model, 'claude') !== false) {
+            return 'claude_direct';
+        } elseif (strpos($model, 'gpt') !== false) {
+            return 'openai_direct';
+        }
+        return 'openai_direct'; // Default to OpenAI for unknown models
+    }
+    
+    /**
+     * Set the model to use for this request
+     */
+    public function set_model($model) {
+        $this->current_model = sanitize_text_field($model);
         
-        if (empty($endpoint)) {
-            return new WP_Error('no_endpoint', 'LiteLLM endpoint not configured');
+        // Always auto-update provider based on model to enable cross-provider switching
+        $this->api_provider = $this->detect_provider_from_model($model);
+    }
+    
+    /**
+     * Get the current model
+     */
+    public function get_model() {
+        return $this->current_model;
+    }
+    
+    /**
+     * Set the API provider to use
+     */
+    public function set_api_provider($provider) {
+        $this->api_provider = sanitize_text_field($provider);
+    }
+    
+    /**
+     * Get the current API provider
+     */
+    public function get_api_provider() {
+        return $this->api_provider;
+    }
+    
+    
+    public function send_message($message, $conversation_id = '', $attachments = array()) {
+        // Route to appropriate API provider
+        switch ($this->api_provider) {
+            case 'claude_direct':
+                return $this->send_message_claude_direct($message, $conversation_id, $attachments);
+            case 'openai_direct':
+            default:
+                return $this->send_message_openai_direct($message, $conversation_id, $attachments);
+        }
+    }
+    
+    
+    /**
+     * Send message via direct Claude API
+     */
+    private function send_message_claude_direct($message, $conversation_id = '', $attachments = array()) {
+        $api_key = $this->settings['claude_api_key'] ?? '';
+        
+        if (empty($api_key)) {
+            return new WP_Error('no_api_key', 'Claude API key not configured');
         }
         
         $conversation_history = $this->get_conversation_history($conversation_id);
         $system_prompt = $this->get_system_prompt();
-        $tools = $this->get_available_tools();
+        $tools = $this->get_available_tools_claude();
+        
+        $messages = array();
+        
+        // Add conversation history (Claude doesn't use system role in messages)
+        foreach ($conversation_history as $msg) {
+            $messages[] = array(
+                'role' => $msg->message_type === 'user' ? 'user' : 'assistant',
+                'content' => $msg->content
+            );
+        }
+        
+        // Prepare current message with Claude-specific attachment format
+        $current_message = $this->prepare_message_claude_format($message, $attachments);
+        $messages[] = $current_message;
+        
+        $request_data = array(
+            'model' => $this->map_model_to_claude($this->current_model),
+            'max_tokens' => intval($this->settings['max_tokens'] ?? 4000),
+            'system' => $system_prompt,
+            'messages' => $messages,
+            'tools' => $tools
+        );
+        
+        error_log('WP Claude Code: Direct Claude API Request - Model: ' . $this->current_model);
+        error_log('WP Claude Code: Direct Claude API Request - Has attachments: ' . (!empty($attachments) ? 'Yes' : 'No'));
+        
+        $response = $this->make_claude_api_request($request_data);
+        
+        if (is_wp_error($response)) {
+            return $response;
+        }
+        
+        return $this->process_claude_response($response);
+    }
+    
+    /**
+     * Send message via direct OpenAI API
+     */
+    private function send_message_openai_direct($message, $conversation_id = '', $attachments = array()) {
+        $api_key = $this->settings['openai_api_key'] ?? '';
+        
+        if (empty($api_key)) {
+            return new WP_Error('no_api_key', 'OpenAI API key not configured');
+        }
+        
+        $conversation_history = $this->get_conversation_history($conversation_id);
+        $system_prompt = $this->get_system_prompt();
+        $tools = $this->get_available_tools_openai();
         
         $messages = array();
         
@@ -82,26 +154,571 @@ class WP_Claude_Code_Claude_API {
             );
         }
         
-        // Add current message
-        $messages[] = array(
-            'role' => 'user',
-            'content' => $message
-        );
+        // Prepare current message with OpenAI-specific attachment format
+        $current_message = $this->prepare_message_openai_format($message, $attachments);
+        $messages[] = $current_message;
         
         $request_data = array(
-            'model' => $this->settings['model'] ?? 'claude-3-sonnet',
+            'model' => $this->map_model_to_openai($this->current_model),
             'messages' => $messages,
             'max_tokens' => intval($this->settings['max_tokens'] ?? 4000),
             'tools' => $tools
         );
         
-        $response = $this->make_api_request($endpoint, $request_data);
+        error_log('WP Claude Code: Direct OpenAI API Request - Model: ' . $this->current_model);
+        error_log('WP Claude Code: Direct OpenAI API Request - Has attachments: ' . (!empty($attachments) ? 'Yes' : 'No'));
+        
+        $response = $this->make_openai_api_request($request_data);
         
         if (is_wp_error($response)) {
             return $response;
         }
         
-        return $this->process_response($response);
+        return $this->process_openai_response($response);
+    }
+    
+    /**
+     * Prepare message with attachments for AI processing
+     */
+    private function prepare_message_with_attachments($message, $attachment_ids) {
+        if (empty($attachment_ids)) {
+            return array(
+                'role' => 'user',
+                'content' => $message
+            );
+        }
+        
+        // Check if model supports vision (images)
+        $supports_vision = $this->model_supports_vision($this->current_model);
+        
+        $content_parts = array();
+        
+        // Add text message
+        $content_parts[] = array(
+            'type' => 'text',
+            'text' => $message
+        );
+        
+        // Process attachments
+        foreach ($attachment_ids as $attachment_id) {
+            $attachment_data = WP_Claude_Code_File_Attachment::execute_attachment_tool('read_attachment', array('attachment_id' => $attachment_id));
+            
+            if (is_wp_error($attachment_data) || !$attachment_data['success']) {
+                error_log('WP Claude Code: Failed to read attachment: ' . $attachment_id);
+                continue;
+            }
+            
+            error_log('WP Claude Code: Processing attachment: ' . $attachment_data['filename'] . ' (type: ' . $attachment_data['type'] . ')');
+            
+            if ($attachment_data['type'] === 'text') {
+                // Add text file content
+                $content_parts[] = array(
+                    'type' => 'text',
+                    'text' => "\n\n--- File: {$attachment_data['filename']} ---\n" . $attachment_data['content'] . "\n--- End of file ---\n"
+                );
+            } elseif ($attachment_data['type'] === 'image' && $supports_vision) {
+                // Add image for vision-capable models with smart format detection
+                $image_content = $this->format_image_for_model($attachment_data);
+                if ($image_content) {
+                    $content_parts[] = $image_content;
+                } else {
+                    // Fallback to text description if image processing fails
+                    $content_parts[] = array(
+                        'type' => 'text',
+                        'text' => "\n\n--- Image File: {$attachment_data['filename']} ---\nNote: Could not process image for viewing with the current model configuration. Image processing failed.\n--- End of image reference ---\n"
+                    );
+                }
+            } elseif ($attachment_data['type'] === 'image' && !$supports_vision) {
+                // For non-vision models, describe the image
+                $content_parts[] = array(
+                    'type' => 'text',
+                    'text' => "\n\n--- Image File: {$attachment_data['filename']} ---\nNote: This is an image file ({$attachment_data['mime_type']}) that I cannot directly view with the current model ({$this->current_model}). The image is {$this->format_file_size($attachment_data['size'])} in size. To analyze this image, please switch to a vision-capable model like Claude 3 Sonnet, Claude 3 Opus, Claude 3 Haiku, GPT-4o, or GPT-4o Mini.\n--- End of image reference ---\n"
+                );
+            }
+        }
+        
+        // Return appropriate message format
+        if (count($content_parts) === 1) {
+            // Single text content
+            return array(
+                'role' => 'user',
+                'content' => $content_parts[0]['text']
+            );
+        } else {
+            // Multi-part content (text + images)
+            return array(
+                'role' => 'user',
+                'content' => $content_parts
+            );
+        }
+    }
+    
+    /**
+     * Format image for direct API use (simplified from LiteLLM version)
+     */
+    private function format_image_for_model($attachment_data) {
+        // Determine format based on current API provider
+        if ($this->api_provider === 'claude_direct') {
+            // Claude format - always use base64
+            return array(
+                'type' => 'image',
+                'source' => array(
+                    'type' => 'base64',
+                    'media_type' => $attachment_data['media_type'],
+                    'data' => $attachment_data['base64_data']
+                )
+            );
+        } else {
+            // OpenAI format - try URL first, fall back to base64
+            if (!empty($attachment_data['url'])) {
+                // Test if the URL is accessible
+                $url_test = wp_remote_head($attachment_data['url'], array('timeout' => 5));
+                if (!is_wp_error($url_test) && wp_remote_retrieve_response_code($url_test) === 200) {
+                    return array(
+                        'type' => 'image_url',
+                        'image_url' => array(
+                            'url' => $attachment_data['url']
+                        )
+                    );
+                }
+            }
+            
+            // Fallback to base64 for OpenAI
+            return array(
+                'type' => 'image_url',
+                'image_url' => array(
+                    'url' => "data:{$attachment_data['media_type']};base64,{$attachment_data['base64_data']}"
+                )
+            );
+        }
+    }
+    
+    /**
+     * Prepare message with Claude-specific attachment format
+     */
+    private function prepare_message_claude_format($message, $attachment_ids) {
+        if (empty($attachment_ids)) {
+            return array(
+                'role' => 'user',
+                'content' => $message
+            );
+        }
+        
+        $content_parts = array();
+        
+        // Add text message
+        $content_parts[] = array(
+            'type' => 'text',
+            'text' => $message
+        );
+        
+        // Process attachments for Claude format
+        foreach ($attachment_ids as $attachment_id) {
+            $attachment_data = WP_Claude_Code_File_Attachment::execute_attachment_tool('read_attachment', array('attachment_id' => $attachment_id));
+            
+            if (is_wp_error($attachment_data) || !$attachment_data['success']) {
+                continue;
+            }
+            
+            if ($attachment_data['type'] === 'text') {
+                $content_parts[] = array(
+                    'type' => 'text',
+                    'text' => "\n\n--- File: {$attachment_data['filename']} ---\n" . $attachment_data['content'] . "\n--- End of file ---\n"
+                );
+            } elseif ($attachment_data['type'] === 'image') {
+                // Claude format for images
+                $content_parts[] = array(
+                    'type' => 'image',
+                    'source' => array(
+                        'type' => 'base64',
+                        'media_type' => $attachment_data['media_type'],
+                        'data' => $attachment_data['base64_data']
+                    )
+                );
+            }
+        }
+        
+        return array(
+            'role' => 'user',
+            'content' => $content_parts
+        );
+    }
+    
+    /**
+     * Prepare message with OpenAI-specific attachment format
+     */
+    private function prepare_message_openai_format($message, $attachment_ids) {
+        if (empty($attachment_ids)) {
+            return array(
+                'role' => 'user',
+                'content' => $message
+            );
+        }
+        
+        $content_parts = array();
+        
+        // Add text message
+        $content_parts[] = array(
+            'type' => 'text',
+            'text' => $message
+        );
+        
+        // Process attachments for OpenAI format
+        foreach ($attachment_ids as $attachment_id) {
+            $attachment_data = WP_Claude_Code_File_Attachment::execute_attachment_tool('read_attachment', array('attachment_id' => $attachment_id));
+            
+            if (is_wp_error($attachment_data) || !$attachment_data['success']) {
+                continue;
+            }
+            
+            if ($attachment_data['type'] === 'text') {
+                $content_parts[] = array(
+                    'type' => 'text',
+                    'text' => "\n\n--- File: {$attachment_data['filename']} ---\n" . $attachment_data['content'] . "\n--- End of file ---\n"
+                );
+            } elseif ($attachment_data['type'] === 'image') {
+                // OpenAI format for images
+                $content_parts[] = array(
+                    'type' => 'image_url',
+                    'image_url' => array(
+                        'url' => "data:{$attachment_data['media_type']};base64,{$attachment_data['base64_data']}"
+                    )
+                );
+            }
+        }
+        
+        return array(
+            'role' => 'user',
+            'content' => $content_parts
+        );
+    }
+    
+    /**
+     * Map generic model names to Claude API models
+     */
+    private function map_model_to_claude($model) {
+        $claude_models = array(
+            'claude-3-sonnet' => 'claude-3-sonnet-20240229',
+            'claude-3-opus' => 'claude-3-opus-20240229',
+            'claude-3-haiku' => 'claude-3-haiku-20240307'
+        );
+        
+        return $claude_models[$model] ?? $model;
+    }
+    
+    /**
+     * Map generic model names to OpenAI API models
+     */
+    private function map_model_to_openai($model) {
+        $openai_models = array(
+            'gpt-4o' => 'gpt-4o',
+            'gpt-4o-mini' => 'gpt-4o-mini',
+            'gpt-4' => 'gpt-4',
+            'gpt-3.5-turbo' => 'gpt-3.5-turbo'
+        );
+        
+        return $openai_models[$model] ?? $model;
+    }
+    
+    /**
+     * Make direct Claude API request
+     */
+    private function make_claude_api_request($data) {
+        $url = 'https://api.anthropic.com/v1/messages';
+        $api_key = $this->settings['claude_api_key'];
+        
+        $headers = array(
+            'Content-Type: application/json',
+            'x-api-key: ' . $api_key,
+            'anthropic-version: 2023-06-01'
+        );
+        
+        return $this->make_http_request($url, $data, $headers);
+    }
+    
+    /**
+     * Make direct OpenAI API request
+     */
+    private function make_openai_api_request($data) {
+        $url = 'https://api.openai.com/v1/chat/completions';
+        $api_key = $this->settings['openai_api_key'];
+        
+        $headers = array(
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $api_key
+        );
+        
+        return $this->make_http_request($url, $data, $headers);
+    }
+    
+    /**
+     * Process Claude API response
+     */
+    private function process_claude_response($response) {
+        if (isset($response['content']) && is_array($response['content']) && !empty($response['content'])) {
+            $content = '';
+            $tools_used = array();
+            
+            foreach ($response['content'] as $block) {
+                if ($block['type'] === 'text') {
+                    $content .= $block['text'];
+                } elseif ($block['type'] === 'tool_use') {
+                    $tools_used[] = $block['name'];
+                    $tool_result = $this->execute_tool($block['name'], $block['input']);
+                    if (!is_wp_error($tool_result)) {
+                        // Add tool result directly without extra "Tool Result:" prefix
+                        // The JavaScript will handle the formatting and wrapping
+                        if (is_string($tool_result)) {
+                            $content .= "\n\n" . $tool_result;
+                        } elseif (is_array($tool_result) && isset($tool_result['message'])) {
+                            // For tool results with a message field, use that for display
+                            $content .= "\n\n" . $tool_result['message'];
+                        } else {
+                            $content .= "\n\n" . json_encode($tool_result, JSON_PRETTY_PRINT);
+                        }
+                    }
+                }
+            }
+            
+            return array(
+                'content' => $content,
+                'tools_used' => $tools_used
+            );
+        }
+        
+        return new WP_Error('invalid_response', 'Invalid response from Claude API');
+    }
+    
+    /**
+     * Process OpenAI API response
+     */
+    private function process_openai_response($response) {
+        if (isset($response['choices']) && !empty($response['choices'])) {
+            $choice = $response['choices'][0];
+            $content = $choice['message']['content'] ?? '';
+            $tools_used = array();
+            
+            if (isset($choice['message']['tool_calls'])) {
+                foreach ($choice['message']['tool_calls'] as $tool_call) {
+                    $function_name = $tool_call['function']['name'];
+                    $arguments = json_decode($tool_call['function']['arguments'], true);
+                    $tools_used[] = $function_name;
+                    
+                    $tool_result = $this->execute_tool($function_name, $arguments);
+                    if (!is_wp_error($tool_result)) {
+                        // Add tool result directly without extra "Tool Result:" prefix
+                        // The JavaScript will handle the formatting and wrapping
+                        if (is_string($tool_result)) {
+                            $content .= "\n\n" . $tool_result;
+                        } elseif (is_array($tool_result) && isset($tool_result['message'])) {
+                            // For tool results with a message field, use that for display
+                            $content .= "\n\n" . $tool_result['message'];
+                        } else {
+                            $content .= "\n\n" . json_encode($tool_result, JSON_PRETTY_PRINT);
+                        }
+                    }
+                }
+            }
+            
+            return array(
+                'content' => $content,
+                'tools_used' => $tools_used
+            );
+        }
+        
+        return new WP_Error('invalid_response', 'Invalid response from OpenAI API');
+    }
+    
+    /**
+     * Generic HTTP request handler
+     */
+    private function make_http_request($url, $data, $headers) {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        
+        $response = curl_exec($ch);
+        $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
+        curl_close($ch);
+        
+        if ($error) {
+            return new WP_Error('curl_error', 'HTTP request failed: ' . $error);
+        }
+        
+        $decoded = json_decode($response, true);
+        
+        if ($http_code !== 200) {
+            $error_message = isset($decoded['error']['message']) ? $decoded['error']['message'] : 'HTTP ' . $http_code;
+            return new WP_Error('api_error', $error_message);
+        }
+        
+        return $decoded;
+    }
+    
+    /**
+     * Get Claude-specific tools format
+     */
+    private function get_available_tools_claude() {
+        // Convert tools to Claude format
+        $litellm_tools = $this->get_available_tools();
+        $claude_tools = array();
+        
+        foreach ($litellm_tools as $tool) {
+            $claude_tools[] = array(
+                'name' => $tool['function']['name'],
+                'description' => $tool['function']['description'],
+                'input_schema' => $tool['function']['parameters']
+            );
+        }
+        
+        return $claude_tools;
+    }
+    
+    /**
+     * Get OpenAI-specific tools format (same as LiteLLM)
+     */
+    private function get_available_tools_openai() {
+        return $this->get_available_tools();
+    }
+    
+    /**
+     * Get available models for the current provider
+     */
+    public function get_available_models() {
+        return $this->get_provider_specific_models();
+    }
+    
+    /**
+     * Get all available models regardless of current provider
+     */
+    private function get_provider_specific_models() {
+        // Always return all models so users can switch between providers in chat
+        return array(
+            'claude' => array(
+                array('id' => 'claude-3-5-sonnet-20241022', 'name' => 'Claude 3.5 Sonnet', 'supports_vision' => true),
+                array('id' => 'claude-3-5-haiku-20241022', 'name' => 'Claude 3.5 Haiku', 'supports_vision' => true),
+                array('id' => 'claude-3-opus-20240229', 'name' => 'Claude 3 Opus', 'supports_vision' => true)
+            ),
+            'openai' => array(
+                array('id' => 'gpt-4o', 'name' => 'GPT-4o', 'supports_vision' => true),
+                array('id' => 'gpt-4o-mini', 'name' => 'GPT-4o Mini', 'supports_vision' => true),
+                array('id' => 'gpt-4-turbo', 'name' => 'GPT-4 Turbo', 'supports_vision' => true),
+                array('id' => 'gpt-4', 'name' => 'GPT-4', 'supports_vision' => false)
+            ),
+            'other' => array()
+        );
+    }
+    
+    /**
+     * Clear models cache (no longer needed for direct APIs but kept for compatibility)
+     */
+    public function clear_models_cache() {
+        // No caching needed for direct APIs
+        return true;
+    }
+    
+    /**
+     * Get troubleshooting suggestions for image processing errors
+     */
+    public function get_image_troubleshooting_suggestions() {
+        $suggestions = array(
+            'format_issues' => array(
+                'title' => 'Image Format Compatibility',
+                'suggestions' => array(
+                    'Images are automatically formatted for your selected API provider',
+                    'Claude API uses base64 encoding for all images',
+                    'OpenAI API tries URLs first, falls back to base64 encoding'
+                )
+            ),
+            'model_compatibility' => array(
+                'title' => 'Model Configuration', 
+                'suggestions' => array(
+                    'Use vision-capable models: Claude 3.5 Sonnet, Claude 3 Opus, GPT-4o, GPT-4o-mini, GPT-4 Turbo',
+                    'Ensure your API key has proper permissions',
+                    'Check that the selected model supports image analysis'
+                )
+            ),
+            'general_tips' => array(
+                'title' => 'General Tips',
+                'suggestions' => array(
+                    'Check that your image is in supported format (JPEG, PNG, GIF, WebP)',
+                    'Verify image size is under 10MB for best performance',
+                    'Ensure stable internet connection for API requests',
+                    'Try a different image if one specific image fails'
+                )
+            )
+        );
+        
+        return $suggestions;
+    }
+    
+    /**
+     * Get specific configuration advice based on current setup
+     */
+    public function get_configuration_advice() {
+        $advice = array();
+        
+        // Provide advice based on current API provider
+        if ($this->api_provider === 'claude_direct') {
+            $advice[] = array(
+                'type' => 'info',
+                'title' => 'Direct Claude API Configuration',
+                'message' => 'You are using the direct Claude API. Images are automatically processed using base64 encoding for optimal compatibility.'
+            );
+        } elseif ($this->api_provider === 'openai_direct') {
+            $advice[] = array(
+                'type' => 'info',
+                'title' => 'Direct OpenAI API Configuration',
+                'message' => 'You are using the direct OpenAI API. Images are processed using URLs when possible, with base64 fallback for maximum efficiency.'
+            );
+        }
+        
+        return $advice;
+    }
+    
+    
+    /**
+     * Check if model supports vision/image analysis
+     */
+    private function model_supports_vision($model) {
+        $vision_models = array(
+            // Claude models with vision
+            'claude-3-5-sonnet-20241022',
+            'claude-3-5-haiku-20241022',
+            'claude-3-opus-20240229',
+            'claude-3-sonnet-20240229',
+            'claude-3-haiku-20240307',
+            'claude-3-sonnet',
+            'claude-3-opus',
+            'claude-3-haiku',
+            // GPT models with vision
+            'gpt-4-vision-preview',
+            'gpt-4o',
+            'gpt-4o-2024-05-13',
+            'gpt-4o-mini',
+            'gpt-4o-mini-2024-07-18',
+            'gpt-4-turbo',
+            'gpt-4-turbo-2024-04-09'
+        );
+        
+        return in_array($model, $vision_models);
+    }
+    
+    /**
+     * Format file size for display
+     */
+    private function format_file_size($bytes) {
+        if ($bytes === 0) return '0 B';
+        $k = 1024;
+        $sizes = array('B', 'KB', 'MB', 'GB');
+        $i = floor(log($bytes) / log($k));
+        return round($bytes / pow($k, $i), 1) . ' ' . $sizes[$i];
     }
     
     private function get_system_prompt() {
@@ -123,8 +740,20 @@ AVAILABLE TOOLS:
 - wp_file_edit: Edit WordPress files with backup and validation
 - wp_db_query: Execute safe database queries
 - wp_cli_exec: Run WP-CLI commands
-- wp_content_create: Create posts, pages, and custom content
-- wp_staging_create: Create staging environments
+- create_post: Create new posts, pages, and custom content with categories/tags
+- update_post: Update existing posts and pages
+- get_posts: List and search WordPress content
+- get_post: Get detailed information about specific posts
+- delete_post: Delete posts and pages (trash or permanent)
+- read_attachment: Read and analyze uploaded files (text, code, images)
+- list_attachments: List uploaded file attachments
+- wp_plugin_check: Check WordPress.org plugin repository for plugin availability and details
+
+VISION CAPABILITIES:
+- I can analyze uploaded images when using vision-capable models (Claude 3 models, GPT-4o)
+- Supported image formats: JPEG, PNG, GIF, WebP
+- I can describe images, read text in images, analyze UI/UX designs, review diagrams
+- For code screenshots, I can read and explain the code shown
 
 CAPABILITIES:
 1. Theme and plugin development assistance
@@ -154,7 +783,7 @@ How can I help you with your WordPress development today?";
     private function get_available_tools() {
         $enabled_tools = $this->settings['enabled_tools'] ?? array();
         $tools = array();
-        
+
         if (in_array('file_read', $enabled_tools)) {
             $tools[] = array(
                 'type' => 'function',
@@ -170,6 +799,33 @@ How can I help you with your WordPress development today?";
                             )
                         ),
                         'required' => array('file_path')
+                    )
+                )
+            );
+        }
+
+        // Always enable the plugin repository check
+        if (in_array('plugin_repository', $enabled_tools) || true) {
+            $tools[] = array(
+                'type' => 'function',
+                'function' => array(
+                    'name' => 'wp_plugin_check',
+                    'description' => 'Check if a plugin is available in the WordPress.org repository and get details about it',
+                    'parameters' => array(
+                        'type' => 'object',
+                        'properties' => array(
+                            'plugin_name' => array(
+                                'type' => 'string',
+                                'description' => 'The name or slug of the plugin to check'
+                            ),
+                            'detail_level' => array(
+                                'type' => 'string',
+                                'enum' => array('basic', 'detailed', 'installation'),
+                                'description' => 'The level of detail to return (basic, detailed, or installation instructions)',
+                                'default' => 'basic'
+                            )
+                        ),
+                        'required' => array('plugin_name')
                     )
                 )
             );
@@ -304,36 +960,17 @@ How can I help you with your WordPress development today?";
             )
         );
         
-        // Always add content management tool
-        $tools[] = array(
-            'type' => 'function',
-            'function' => array(
-                'name' => 'wp_content_list',
-                'description' => 'List WordPress content (posts, pages, custom post types)',
-                'parameters' => array(
-                    'type' => 'object',
-                    'properties' => array(
-                        'post_type' => array(
-                            'type' => 'string',
-                            'description' => 'Type of content to list (post, page, any, or custom post type)',
-                            'default' => 'post'
-                        ),
-                        'status' => array(
-                            'type' => 'string',
-                            'enum' => array('publish', 'draft', 'private', 'trash', 'any'),
-                            'description' => 'Post status to filter by',
-                            'default' => 'any'
-                        ),
-                        'limit' => array(
-                            'type' => 'integer',
-                            'description' => 'Number of posts to return (max 50)',
-                            'default' => 20
-                        )
-                    ),
-                    'required' => array()
-                )
-            )
-        );
+        // Add content management tools
+        $content_tools = WP_Claude_Code_Content_Manager::get_content_tools();
+        foreach ($content_tools as $tool) {
+            $tools[] = $tool;
+        }
+        
+        // Add file attachment tools
+        $attachment_tools = WP_Claude_Code_File_Attachment::get_attachment_tools();
+        foreach ($attachment_tools as $tool) {
+            $tools[] = $tool;
+        }
         
         return $tools;
     }
@@ -355,94 +992,20 @@ How can I help you with your WordPress development today?";
         ));
     }
     
-    private function make_api_request($endpoint, $data) {
-        $url = rtrim($endpoint, '/') . '/v1/chat/completions';
-        
-        $headers = array(
-            'Content-Type' => 'application/json'
-        );
-        
-        // Debug logging for API key
-        error_log('WP Claude Code: API Key available: ' . (!empty($this->settings['api_key']) ? 'Yes' : 'No'));
-        error_log('WP Claude Code: Endpoint: ' . $url);
-        
-        if (!empty($this->settings['api_key'])) {
-            $headers['Authorization'] = 'Bearer ' . $this->settings['api_key'];
-            error_log('WP Claude Code: Added Authorization header');
-        } else {
-            error_log('WP Claude Code: No API key found in settings');
-            return new WP_Error('no_api_key', 'No API key configured');
-        }
-        
-        $args = array(
-            'headers' => $headers,
-            'body' => json_encode($data),
-            'timeout' => 60,
-            'method' => 'POST'
-        );
-        
-        $response = wp_remote_request($url, $args);
-        
-        if (is_wp_error($response)) {
-            return $response;
-        }
-        
-        $status_code = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
-        
-        if ($status_code !== 200) {
-            return new WP_Error('api_error', "API request failed with status $status_code: $body");
-        }
-        
-        $decoded = json_decode($body, true);
-        
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return new WP_Error('json_error', 'Invalid JSON response from API');
-        }
-        
-        return $decoded;
-    }
-    
-    private function process_response($response) {
-        if (!isset($response['choices'][0]['message'])) {
-            return new WP_Error('invalid_response', 'Invalid response format from API');
-        }
-        
-        $message = $response['choices'][0]['message'];
-        $content = $message['content'] ?? '';
-        $tools_used = array();
-        
-        // Process tool calls if present
-        if (isset($message['tool_calls'])) {
-            foreach ($message['tool_calls'] as $tool_call) {
-                $function_name = $tool_call['function']['name'];
-                $arguments = json_decode($tool_call['function']['arguments'], true);
-                
-                $tool_result = $this->execute_tool($function_name, $arguments);
-                $tools_used[] = $function_name;
-                
-                if (!is_wp_error($tool_result)) {
-                    $content .= "\n\n" . $tool_result;
-                } else {
-                    $content .= "\n\nTool execution error: " . $tool_result->get_error_message();
-                }
-            }
-        }
-        
-        return array(
-            'content' => $content,
-            'tools_used' => $tools_used
-        );
-    }
     
     private function execute_tool($function_name, $arguments) {
         error_log("WP Claude Code: Executing tool: $function_name with arguments: " . json_encode($arguments));
         
+        // Define constant to indicate we're in tool execution context
+        if (!defined('WP_CLAUDE_CODE_TOOL_EXECUTION')) {
+            define('WP_CLAUDE_CODE_TOOL_EXECUTION', true);
+        }
+
         switch ($function_name) {
             case 'wp_file_read':
                 $result = WP_Claude_Code_Filesystem::read_file($arguments['file_path']);
                 break;
-                
+
             case 'wp_file_edit':
                 $result = WP_Claude_Code_Filesystem::edit_file(
                     $arguments['file_path'],
@@ -450,41 +1013,77 @@ How can I help you with your WordPress development today?";
                     $arguments['backup'] ?? true
                 );
                 break;
-                
+
             case 'wp_cli_exec':
                 $result = WP_Claude_Code_WP_CLI_Bridge::execute($arguments['command']);
                 error_log("WP Claude Code: WP-CLI result: " . json_encode($result));
                 break;
-                
+
             case 'wp_db_query':
                 $result = WP_Claude_Code_Database::execute_query(
                     $arguments['query'],
                     $arguments['query_type']
                 );
                 break;
-                
+
+            case 'wp_plugin_check':
+                // Load the plugin repository class
+                if (!class_exists('WP_Claude_Code_Plugin_Repository')) {
+                    require_once WP_CLAUDE_CODE_PLUGIN_PATH . 'includes/class-plugin-repository.php';
+                }
+
+                $plugin_name = $arguments['plugin_name'];
+                $detail_level = $arguments['detail_level'] ?? 'basic';
+
+                $repository = WP_Claude_Code_Plugin_Repository::get_instance();
+
+                if ($detail_level === 'basic') {
+                    $result = $repository->check_plugin_availability($plugin_name);
+                    if (!is_wp_error($result)) {
+                        $result = "Plugin check for \"{$plugin_name}\":\n\n" . $result['message'];
+                    }
+                } elseif ($detail_level === 'detailed') {
+                    $result = $repository->get_formatted_plugin_details($plugin_name);
+                } elseif ($detail_level === 'installation') {
+                    $result = $repository->get_installation_instructions($plugin_name);
+                }
+                break;
+
             case 'wp_site_info':
                 $info_type = $arguments['info_type'] ?? 'all';
                 $result = $this->get_site_info_native($info_type);
                 break;
-                
+
             case 'wp_content_list':
                 $post_type = $arguments['post_type'] ?? 'post';
                 $status = $arguments['status'] ?? 'any';
                 $limit = min(intval($arguments['limit'] ?? 20), 50);
                 $result = $this->get_content_list($post_type, $status, $limit);
                 break;
-                
+
             case 'wp_theme_info':
                 $include_files = $arguments['include_files'] ?? true;
                 $result = $this->get_theme_info($include_files);
                 break;
-                
+
             case 'wp_database_status':
                 $include_tables = $arguments['include_tables'] ?? true;
                 $result = $this->get_database_status($include_tables);
                 break;
-                
+
+            case 'create_post':
+            case 'update_post':
+            case 'get_posts':
+            case 'get_post':
+            case 'delete_post':
+                $result = WP_Claude_Code_Content_Manager::execute_content_tool($function_name, $arguments);
+                break;
+
+            case 'read_attachment':
+            case 'list_attachments':
+                $result = WP_Claude_Code_File_Attachment::execute_attachment_tool($function_name, $arguments);
+                break;
+
             default:
                 return new WP_Error('unknown_tool', "Unknown tool: $function_name");
         }
@@ -666,8 +1265,9 @@ How can I help you with your WordPress development today?";
                
                "## Claude Code Plugin Status\n" .
                "- **WP-CLI Available:** " . (WP_Claude_Code_WP_CLI_Bridge::is_wp_cli_available() ? 'Yes' : 'No') . "\n" .
-               "- **LiteLLM Endpoint:** " . ($this->settings['litellm_endpoint'] ?? 'Not configured') . "\n" .
-               "- **API Key Configured:** " . (!empty($this->settings['api_key']) ? 'Yes' : 'No') . "\n" .
+               "- **API Provider:** " . ($this->settings['api_provider'] ?? 'Not configured') . "\n" .
+               "- **Claude API Key:** " . (!empty($this->settings['claude_api_key']) ? 'Yes' : 'No') . "\n" .
+               "- **OpenAI API Key:** " . (!empty($this->settings['openai_api_key']) ? 'Yes' : 'No') . "\n" .
                "- **Model:** " . ($this->settings['model'] ?? 'Not set') . "\n";
     }
     
@@ -987,27 +1587,34 @@ How can I help you with your WordPress development today?";
         return $output;
     }
     
+    /**
+     * Test connection to the configured API provider
+     */
     public function test_connection() {
-        $endpoint = $this->settings['litellm_endpoint'] ?? '';
-        
-        if (empty($endpoint)) {
-            return new WP_Error('no_endpoint', 'LiteLLM endpoint not configured');
+        try {
+            $test_message = "Hello! This is a connection test. Please respond with 'Connection successful'.";
+            $result = $this->send_message($test_message);
+            
+            if (is_wp_error($result)) {
+                return array(
+                    'status' => 'error',
+                    'message' => 'Connection failed: ' . $result->get_error_message(),
+                    'provider' => $this->api_provider
+                );
+            } else {
+                return array(
+                    'status' => 'success',
+                    'message' => 'Connection successful! Provider: ' . ucfirst($this->api_provider),
+                    'response' => $result['content'] ?? 'No response content',
+                    'provider' => $this->api_provider
+                );
+            }
+        } catch (Exception $e) {
+            return array(
+                'status' => 'error',
+                'message' => 'Connection error: ' . $e->getMessage(),
+                'provider' => $this->api_provider
+            );
         }
-        
-        $test_data = array(
-            'model' => $this->settings['model'] ?? 'claude-3-sonnet',
-            'messages' => array(
-                array('role' => 'user', 'content' => 'Hello, this is a connection test.')
-            ),
-            'max_tokens' => 50
-        );
-        
-        $response = $this->make_api_request($endpoint, $test_data);
-        
-        if (is_wp_error($response)) {
-            return $response;
-        }
-        
-        return array('status' => 'success', 'message' => 'Connection successful');
     }
 }
