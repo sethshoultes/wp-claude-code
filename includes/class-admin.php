@@ -123,8 +123,7 @@ class WP_Claude_Code_Admin {
                                 <li>Database queries and content management</li>
                                 <li>WP-CLI commands and site management</li>
                                 <li>Code analysis and debugging</li>
-                                <li>Creating staging environments</li>
-                            </ul>
+                                        </ul>
                             <p>What would you like to work on?</p>
                         </div>
                     </div>
@@ -206,11 +205,6 @@ class WP_Claude_Code_Admin {
                                 <span class="tool-icon">🔍</span>
                                 <span class="tool-name">Plugin Repository</span>
                                 <span class="tool-status-dot active"></span>
-                            </div>
-                            <div class="tool-item" data-tool="staging">
-                                <span class="tool-icon">🚀</span>
-                                <span class="tool-name">Staging</span>
-                                <span class="tool-status-dot"></span>
                             </div>
                         </div>
                     </div>
@@ -685,7 +679,6 @@ class WP_Claude_Code_Admin {
                 'db_query' => 'Database Queries',
                 'plugin_repository' => 'Plugin Repository',
                 'content_management' => 'Content Management',
-                'staging' => 'Staging Management'
             );
             
             echo "<div style='background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 15px;'>";
@@ -1725,10 +1718,6 @@ class WP_Claude_Code_Admin {
                 'label' => 'Content Management',
                 'description' => 'Create and manage posts, pages, and media'
             ),
-            'staging' => array(
-                'label' => 'Staging Management',
-                'description' => 'Manage staging environments and deployments'
-            )
         );
 
         foreach ($available_tools as $tool => $info) {

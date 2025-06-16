@@ -131,7 +131,6 @@ AI Assistant: [Analyzes database health and provides recommendations]
 - **Automatic Backups** - Creates backups before file modifications
 - **Syntax Validation** - Checks PHP syntax before saving files
 - **Read-Only Mode** - Option to disable write operations
-- **Staging Support** - Test changes on staging sites first
 
 ## 🔌 WP-CLI Integration
 

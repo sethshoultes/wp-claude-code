@@ -557,7 +557,6 @@ jQuery(document).ready(function($) {
                     <li>Database queries and content management</li>
                     <li>WP-CLI commands and site management</li>
                     <li>Code analysis and debugging</li>
-                    <li>Creating staging environments</li>
                 </ul>
                 <p>What would you like to work on?</p>
             </div>

@@ -573,7 +573,6 @@ function wp_claude_code_render_system_tab() {
             'db_query' => 'Database Queries',
             'plugin_repository' => 'Plugin Repository',
             'content_management' => 'Content Management',
-            'staging' => 'Staging Management'
         );
         
         echo "<div style='background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px; padding: 15px;'>";
